@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+glium = "0.34.0"
 rand = "0.8.5"
 rayon = "1.10.0"
 slint = "1.6.0"
+walkdir = "2.5.0"
+winit = "0.30.3"

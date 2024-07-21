@@ -1,36 +1,30 @@
 use core::fmt;
 use std::{ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
 
-
 // conversion to f64
 pub trait ToF64 {
     fn to_f64(self) -> f64;
 }
-
 impl ToF64 for f32 {
     fn to_f64(self) -> f64 {
         self as f64
     }
 }
-
 impl ToF64 for f64 {
     fn to_f64(self) -> f64 {
         self
     }
 }
-
 impl ToF64 for i32 {
     fn to_f64(self) -> f64 {
         self as f64
     }
 }
-
 impl ToF64 for u32 {
     fn to_f64(self) -> f64 {
         self as f64
     }
 }
-
 
 
 // main struct
@@ -42,6 +36,11 @@ pub struct Vec3<T> {
     pub z: T,
 }
 
+impl<T: std::cmp::PartialEq> PartialEq for Vec3<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x && self.y == other.y && self.z == other.z
+    }
+}
 
 // Addition traits
 
@@ -85,8 +84,8 @@ where
     T: Add<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn add(self, rhs: &Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
+    fn add(self, rhs: &Vec3<T>) -> Vec3<T>{
+        Vec3::<T>{
             x: self.x + rhs.x,
             y: self.y + rhs.y,
             z: self.z + rhs.z,
@@ -145,6 +144,21 @@ where
     }
 }
 
+
+impl<T> Sub<T> for Vec3<T>                                // Subracting with scalar
+where
+    T: Sub<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn sub(self, rhs: T) -> Vec3<T> {
+        Vec3::<T> {
+            x: self.x - rhs,
+            y: self.y - rhs,
+            z: self.z - rhs,
+        }
+    }
+}
+
 impl<T> Sub<&Vec3<T>> for &Vec3<T>                      // Returning new Vec3 without moving data
 where
     T: Sub<Output = T> + Copy,
@@ -191,7 +205,7 @@ where
 // multiplication traits
     // multiplication with scalar
 impl<T> MulAssign<T> for Vec3<T>
-where 
+where
     T: MulAssign + Copy
 {
     fn mul_assign(&mut self, rhs: T) {
@@ -327,9 +341,9 @@ impl<T> Div<&Vec3<T>> for Vec3<T>                       // Returning new Vec3 wi
 where
     T: Div<Output = T> + Copy,
 {
-    type Output = Vec3<T>;
-    fn div(self, rhs: &Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
+    type Output = Self;
+    fn div(self, rhs: &Vec3<T>) -> Self {
+        Self {
             x: self.x / rhs.x,
             y: self.y / rhs.y,
             z: self.z / rhs.z,
@@ -351,14 +365,19 @@ where
     }
 }
 
-
 // other required implementations
-impl<T> Vec3<T>
+impl<T: PartialOrd> Vec3<T>
 where T: Copy + Mul<Output = T> + Add<Output = T> + ToF64 + Sub<Output = T>
 {
-
+    pub fn e_new() -> Vec3<f32>{
+        Vec3::<f32> {
+            y: f32::MAX,
+            x: f32::MAX,
+            z: f32::MAX,
+        }
+    }
     pub fn new(x: T, y: T, z: T) -> Self {
-        Vec3 { x, y, z }
+        Self { x, y, z }
     }
 
     pub fn squared_length(&self) -> T {
@@ -377,17 +396,47 @@ where T: Copy + Mul<Output = T> + Add<Output = T> + ToF64 + Sub<Output = T>
         Vec3::<T> {
             x: self.y * other.z - other.y * self.z,
             y: self.z * other.x - self.x * other.z,
-            z: self.x * other.y - self.y * other.y,
+            z: self.x * other.y - self.y * other.x,
         }
     }
 
-    pub fn unit_vector(self) -> Vec3<f64> {
+    pub fn normalize(self) -> Vec3<f64> {
         let length = &self.length();
         Vec3::<f64>{
             x: &self.x.to_f64() / length,
             y: &self.y.to_f64() / length,
             z: &self.z.to_f64() / length,
         }
+    }
+    
+    pub fn max_component(self) -> T {
+        if self.x > self.y {
+           if self.z > self.x {
+                return self.z
+            }
+            return self.x
+        }
+        else{
+            if self.z > self.y {
+                return self.z
+            }
+            return self.y
+        }
+    }
+
+    pub fn min_component(self) -> T {
+        if self.x < self.y {
+            if self.z < self.x {
+                 return self.z
+             }
+             return self.x
+         }
+         else{
+             if self.z < self.y {
+                 return self.z
+             }
+             return self.y
+         }
     }
     
 }
@@ -399,19 +448,21 @@ impl<T: fmt::Display> fmt::Display for Vec3<T>{
     }
 }
 
-pub fn write_color<T: ToF64 + Copy>(out: &mut [u8], pixel_color: &Vec3<T>){
-    let r = pixel_color.x;
-    let g = pixel_color.y;
-    let b = pixel_color.z;
+pub fn write_color(out: &mut [u8], pixel_color: [f64; 4]){
+    let r = pixel_color[0];
+    let g = pixel_color[1];
+    let b = pixel_color[2];
+    let a = pixel_color[3];
 
     // Translate the [0,1] component values to the byte range [0,255].
-    let r = (255.999 * r.to_f64()).round() as u8;
-    let g = (255.999 * g.to_f64()).round() as u8;
-    let b = (255.999 * b.to_f64()).round() as u8;
+    let r = (255.999 * r).round() as u8;
+    let g = (255.999 * g).round() as u8;
+    let b = (255.999 * b).round() as u8;
+    let a = (255.999 * a).round() as u8;
 
     out[0] = r;
     out[1] = g;
     out[2] = b;
-    out[3] = 255;
+    out[3] = a;
 
 }

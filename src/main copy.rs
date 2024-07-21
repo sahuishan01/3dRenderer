@@ -4,68 +4,72 @@ mod utils;
 mod bvh;
 mod mesh;
 
-use bvh::BVH;
+use bvh::is_on_box_boundary;
 use ray::Camera;
 use vector::Vec3;
 
-use slint::private_unstable_api::re_exports::EventResult;
-
-use slint::{quit_event_loop, PhysicalSize, RenderingState, Rgba8Pixel, SharedPixelBuffer, Weak};
-use std::str::FromStr;
+use slint::{RenderingState, Rgba8Pixel, SharedPixelBuffer, Weak};
 use std::sync::{Arc, Mutex};
-// use std::time::{Duration, Instant};
+use std::time::Instant;
+use std::thread;
 use std::path::PathBuf;
 use slint::platform::WindowEvent;
-// use walkdir::WalkDir;
+use walkdir::WalkDir;
 use mesh::*;
-use utils::generate_image;
+use utils::{generate_gradient, generate_image};
 use crate::bvh::create_bvh;
+use crate::ray::Ray;
 
 
-fn update_image(handle_weak: &Weak<MainWindow>, width: &u32, height: &u32, camera: &Camera, bvh: &BVH){
-    if *width==0 || *height==0 { return; };
-    println!("updating {}, {}", width, height);
+fn update_image(handle_weak: &Weak<MainWindow>, width: u32, height: u32, camera: &Camera){
+    if width==0 || height==0 { return; };
+    println!("updating");
     let handle_copy = handle_weak.clone();
-    let aspect_ratio = *width as f64 / *height as f64;
-    let half_height = (camera.view_angle / 2.).tan() * camera.near;
-    let half_width = half_height *  aspect_ratio;
+    let aspect_ratio = width as f64 / height as f64;
+    let viewport_height = 2.0;
+    let viewport_width = viewport_height * aspect_ratio;
 
-    let pixel_width = 2. * half_width / *width as f64;
-    let pixel_height = 2. * half_height / *height as f64;
+    let viewport_u = Vec3::new(viewport_width, 0., 0.);
+    let viewport_v = Vec3::new(0., -viewport_height, 0.);
 
-    let Z = (camera.focus - camera.position).normalize();
-    let X = camera.up.cross(&Z).normalize();
-    let Y = Z.cross(&X).normalize();
-    let view_port_center = camera.position + Z * camera.near;
+    let pixel_delta_u = viewport_u / width as f64;
+    let pixel_delta_v = viewport_v / height as f64;
+
+    let viewport_upper_left =
+        camera.position + Vec3::new(0.0, 0.0, camera.near) - viewport_u / 2. - viewport_v / 2.;
+    println!("{:?} {:?}",camera.position, camera.focus - camera.position);
+
+    let pixel00_loc = viewport_upper_left + (pixel_delta_u + pixel_delta_v) * 0.5;
+    let box_min = Vec3::new(-2.0, 2.0, -2.0);
+    let box_max = Vec3::new(2.0, 6.0, 2.0);
     // let th = thread::spawn(move || {
-        let mut pixel_buffer = SharedPixelBuffer::<Rgba8Pixel>::new(*width, *height);
+        let mut pixel_buffer = SharedPixelBuffer::<Rgba8Pixel>::new(width, height);
         // generate_gradient(pixel_buffer.width(), pixel_buffer.make_mut_bytes(), pixel00_loc, pixel_delta_u, pixel_delta_v, camera_center);
         generate_image(
             pixel_buffer.width(),
             pixel_buffer.make_mut_bytes(),
-            view_port_center,
-            half_width,
-            half_height,
-            pixel_width,
-            pixel_height,
+            pixel00_loc,
+            pixel_delta_u,
+            pixel_delta_v,
             camera.position,
-            bvh,
-            X,
-            Y
+            box_min,
+            box_max
         );
-        handle_copy.upgrade().unwrap().set_canvas_source(slint::Image::from_rgba8(pixel_buffer));
+        let _ = slint::invoke_from_event_loop(move || {
+            handle_copy.upgrade().unwrap().set_canvas_source(slint::Image::from_rgba8_premultiplied(pixel_buffer));
+        });
     // });
     // let _ = th.join();
     // slint::Image::from_rgba8(pixel_buffer)
 }
 
-fn process_rendering_state(state: RenderingState, main_window: MainWindow, width: &u32, height: &u32, camera: &Camera, bvh: &BVH){
+fn process_rendering_state(state: RenderingState, main_window: MainWindow, width: &u32, height: &u32, camera: &Camera){
     match state {
         RenderingState::BeforeRendering => {
-            update_image(&main_window.as_weak(), width, height, camera, bvh);
+            update_image(&main_window.as_weak(), width.clone(), height.clone(), camera);
         }
         RenderingState::RenderingSetup => {
-            update_image(&main_window.as_weak(), width, height, camera, bvh);
+            update_image(&main_window.as_weak(), width.clone(), height.clone(), camera);
         }
         _ => {
             println!("{:?}", state);
@@ -73,93 +77,38 @@ fn process_rendering_state(state: RenderingState, main_window: MainWindow, width
     }
 }
 
-fn load_mesh(path: &str) -> (Mesh, PathBuf) {
-    let path = PathBuf::from_str(path).unwrap();
-    let result = mesh::load_mesh(&path).unwrap();
-    (result, path)
-}
-
 
 
 fn main() {
-    let width = Arc::new(Mutex::new(1600));
-    let height = Arc::new(Mutex::new(1200));
+
+    let mut width = 800;
+    let mut height = 800;
 
     let camera = Arc::new(Mutex::new(Camera::new(Some(Vec3::new(0., 0., -10.)), None,
                                      None, Some(1.), None, None)));
-    let cc1 = Arc::clone(&camera);
-    let cc2 = Arc::clone(&camera);
-    let cc3 = Arc::clone(&camera);
-
-    let w1 = Arc::clone(&width);
-    let w2 = Arc::clone(&width);
-    let w3 = Arc::clone(&width);
-    let h1 = Arc::clone(&height);
-    let h2 = Arc::clone(&height);
-    let h3 = Arc::clone(&height);
-
-    let mesh: &'static _ = Box::leak(Box::new(load_mesh("D:/projects/Raw/1.stl")));
-    let bvh = Arc::new(Mutex::new(create_bvh(&mesh.0)));
-
-    let bvh_clone1 = Arc::clone(&bvh);
-    let bvh_clone2 = Arc::clone(&bvh);
-    let bvh_clone3 = Arc::clone(&bvh);
+    let camera_clone1 = Arc::clone(&camera);
+    let camera_clone2 = Arc::clone(&camera);
 
     let main_window = MainWindow::new().unwrap();
-
-    let size = PhysicalSize::new(*width.lock().unwrap(), *height.lock().unwrap());
-    main_window.window().set_size(size);
-    
-
     let handle_weak = main_window.clone_strong();
     main_window.window().dispatch_event(WindowEvent::Resized { size: Default::default()});
     main_window.on_moved(move |pressed_x, pressed_y, current_x, current_y|{
         let dx = current_x - pressed_x;
         let dy = current_y  - pressed_y;
-        let width = w1.lock().unwrap();
-        let height = h1.lock().unwrap();
-        let mut camera = cc1.lock().unwrap();
+        let mut camera = camera_clone1.lock().unwrap();
         camera.rotate(dx as f64, dy as f64, None);
-        let bvh = bvh_clone1.lock().unwrap();
-        update_image(&handle_weak.as_weak(), &width, &height, &camera, &bvh);
+        update_image(&handle_weak.as_weak(), width, height, &camera);
         println!("x: {}, y: {}", pressed_x - current_x, pressed_y - current_y);
     });
-
-    let handle_weak = main_window.as_weak();
-    main_window.on_keyReleased(move |event| {
-        let mut camera = cc3.lock().unwrap();
-        
-        let width = w2.lock().unwrap();
-        let height = h2.lock().unwrap();
-        match event.text.to_ascii_lowercase().as_str(){
-            "a" => camera.movement(ray::Direction::Left),
-            "d" => camera.movement(ray::Direction::Right),
-            "w" => camera.movement(ray::Direction::Up),
-            "s" => camera.movement(ray::Direction::Down),
-            "z" => camera.movement(ray::Direction::Forward),
-            "x" => camera.movement(ray::Direction::Backward),
-            "q" => {quit_event_loop();},
-            _ => {}
-        }
-        let bvh = bvh_clone2.lock().unwrap();
-        update_image(&handle_weak, &width, &height, &camera, &bvh);
-        EventResult::Accept
-    });
-
     let handle_weak = main_window.clone_strong();
     let _ = main_window.window().set_rendering_notifier(move |state, _graphic| {
-        let mut width = w3.lock().unwrap();
-        let mut height = h3.lock().unwrap();
-        if handle_weak.window().size().width != *width || handle_weak.window().size().height != *height{
-            *width = handle_weak.window().size().width;
-            *height = handle_weak.window().size().height;
-            let camera = cc2.lock().unwrap();
-            let bvh = bvh_clone3.lock().unwrap();
-            process_rendering_state(state, handle_weak.clone_strong(), &width, &height, &camera, &bvh);
+        if handle_weak.window().size().width != width || handle_weak.window().size().height != height{
+            width = handle_weak.window().size().width.clone();
+            height = handle_weak.window().size().height.clone();
+            let camera = camera_clone2.lock().unwrap();
+            process_rendering_state(state, handle_weak.clone_strong(), &width, &height, &camera);
     }
     });
-
-
     main_window.run().unwrap();
 }
 
@@ -167,16 +116,13 @@ slint::slint!{
     export component MainWindow inherits Window{
         in property <image> canvas_source <=> canvas.source;
         callback moved(length, length, length, length);
-        callback keyReleased <=> keyboard.key-released;
         // in-out property <function> name;
-        keyboard:= FocusScope {
-            touchArea:= TouchArea {
-                canvas := Image {
-                    height: parent.height;
-                    width: parent.width;
-                }
-                moved => {root.moved(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y)}
+        touchArea:= TouchArea {
+            canvas := Image {
+                height: parent.height;
+                width: parent.width;
             }
+            moved => {root.moved(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y)}
         }
     }
 }
