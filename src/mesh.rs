@@ -63,7 +63,7 @@ impl Face{
 
 
 #[repr(C, packed)]
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Triangle{
     pub normal: Vec3<f32>,
     pub vertices: [Vec3<f32>; 3],

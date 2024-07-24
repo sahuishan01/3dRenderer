@@ -4,19 +4,22 @@ use std::sync::Mutex;
 use rayon::max_num_threads;
 use rayon::prelude::*;
 use crate::ray::Ray;
+use crate::utils::MinHeap;
 use crate::Vec3;
 use crate::mesh::{Mesh, Triangle};
 
-pub struct Node<'a>{
+#[derive(Clone)]
+pub struct Node{
     pub bounds: [f32; 6],
     pub start_triangle: usize,
-    pub triangle_count: u128,
-    pub left_node: Option<&'a Node<'a>>,
-    pub right_node: Option<&'a Node<'a>>,
+    pub triangle_count: usize,
+    pub left_node: Option<usize>,
+    pub right_node: Option<usize>,
 }
 
-pub struct BVH<'a> {
-    pub nodes: Vec<Node<'a>>,
+#[derive(Clone)]
+pub struct BVH {
+    pub nodes: Vec<Node>,
     pub triangles: Vec<Triangle>
 }
 
@@ -75,15 +78,190 @@ pub fn create_bvh(mesh: &Mesh) -> BVH{
     let root_node = Node{
         bounds: *final_bounds,
         start_triangle: 0,
-        triangle_count: 0,
+        triangle_count: triangle_centers.len(),
         left_node: None,
         right_node: None,
     };
+    let mut depth = 10_u8;
+    let mut nodes = Vec::from([root_node]);
+    depth -= 1;
+    create_nodes(&mut triangle_centers, &mut triangles, &mut nodes, &mut depth, 0);
     let bvh = BVH{
-        nodes: vec![root_node],
+        nodes,
         triangles,
     };
     bvh
+}
+
+pub fn create_nodes(triangle_centers: &mut Vec<Vec3<f32>>, triangles: &mut Vec<Triangle>, nodes: &mut Vec<Node>, depth: &mut u8, parent_node_index: usize){
+    let bounds = nodes[parent_node_index].bounds;
+    let x_size = bounds[3] - bounds[0];
+    let y_size = bounds[4] - bounds[1];
+    let z_size = bounds[5] - bounds[2];
+    if *depth == 0_u8 { return };
+    
+    if x_size > y_size.max(z_size) {
+        let split_point = (bounds[3] + bounds[0]) / 2.;
+        let left_bounds = [bounds[0], bounds[1], bounds[2], split_point, bounds[4], bounds[5]];
+        let right_bounds = [split_point, bounds[1], bounds[2], bounds[3], bounds[4], bounds[5]];
+        let mut right_indices: MinHeap<usize> = MinHeap::new();
+        let mut last_left_triangle_index = nodes[parent_node_index].start_triangle;
+        for i in nodes[parent_node_index].start_triangle..nodes[parent_node_index].triangle_count{
+            if triangle_centers[i].x <= split_point{
+                if !right_indices.is_empty(){
+                    let swap_index = right_indices.pop().unwrap();
+                    triangles.swap(i, swap_index);
+                    triangle_centers.swap(i, swap_index);
+                }
+                last_left_triangle_index = i;
+            }
+            else{
+                right_indices.push(i);
+            }
+        }
+        let left_node = Node {
+            bounds: left_bounds,
+            start_triangle: nodes[parent_node_index].start_triangle,
+            triangle_count: last_left_triangle_index - nodes[parent_node_index].start_triangle,
+            left_node: None,
+            right_node: None,
+        };
+        nodes.push(left_node);
+        let left_node_index = nodes.len() - 1;
+        nodes[parent_node_index].left_node = Some(left_node_index);
+        let mut current_dept = *depth - 1;
+        create_nodes(triangle_centers, triangles, nodes, &mut current_dept, left_node_index);
+        if !(nodes[left_node_index].triangle_count == nodes[parent_node_index].triangle_count){
+            let right_node = Node {
+                bounds: right_bounds,
+                start_triangle: last_left_triangle_index,
+                triangle_count: nodes[parent_node_index].triangle_count - nodes[left_node_index].triangle_count,
+                left_node: None,
+                right_node: None,
+            };
+            nodes.push(right_node);
+            let right_node_index = nodes.len() - 1;
+            nodes[parent_node_index].right_node = Some(right_node_index);
+            create_nodes(triangle_centers, triangles, nodes, &mut current_dept, right_node_index);
+        }
+    } else if y_size > z_size {
+        let split_point = (bounds[4] + bounds[1]) / 2.;
+        let left_bounds = [bounds[0], bounds[1], bounds[2], bounds[3], split_point, bounds[5]];
+        let right_bounds = [bounds[0], split_point, bounds[2], bounds[3], bounds[4], bounds[5]];
+        let mut right_indices: MinHeap<usize> = MinHeap::new();
+        let mut last_left_triangle_index = nodes[parent_node_index].start_triangle;
+        for i in nodes[parent_node_index].start_triangle..nodes[parent_node_index].triangle_count{
+            if triangle_centers[i].y <= split_point{
+                if !right_indices.is_empty(){
+                    let swap_index = right_indices.pop().unwrap();
+                    triangles.swap(i, swap_index);
+                    triangle_centers.swap(i, swap_index);
+                }
+                last_left_triangle_index = i;
+            }
+            else{
+                right_indices.push(i);
+            }
+        }
+        let left_node = Node {
+            bounds: left_bounds,
+            start_triangle: nodes[parent_node_index].start_triangle,
+            triangle_count: last_left_triangle_index - nodes[parent_node_index].start_triangle,
+            left_node: None,
+            right_node: None,
+        };
+        nodes.push(left_node);
+        let left_node_index = nodes.len() - 1;
+        nodes[parent_node_index].left_node = Some(left_node_index);
+        let mut current_dept = *depth - 1;
+        create_nodes(triangle_centers, triangles, nodes, &mut current_dept, left_node_index);
+        if !(nodes[left_node_index].triangle_count == nodes[parent_node_index].triangle_count){
+            let right_node = Node {
+                bounds: right_bounds,
+                start_triangle: last_left_triangle_index,
+                triangle_count: nodes[parent_node_index].triangle_count - nodes[left_node_index].triangle_count,
+                left_node: None,
+                right_node: None,
+            };
+            nodes.push(right_node);
+            let right_node_index = nodes.len() - 1;
+            nodes[parent_node_index].right_node = Some(right_node_index);
+            create_nodes(triangle_centers, triangles, nodes, &mut current_dept, right_node_index);
+        }
+    } else {
+        let split_point = (bounds[5] + bounds[2]) / 2.;
+        let left_bounds = [bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], split_point];
+        let right_bounds = [bounds[0], bounds[1], split_point, bounds[3], bounds[4], bounds[5]];
+        let mut right_indices: MinHeap<usize> = MinHeap::new();
+        let mut last_left_triangle_index = nodes[parent_node_index].start_triangle;
+        for i in nodes[parent_node_index].start_triangle..nodes[parent_node_index].triangle_count{
+            if triangle_centers[i].z <= split_point{
+                if !right_indices.is_empty(){
+                    let swap_index = right_indices.pop().unwrap();
+                    triangles.swap(i, swap_index);
+                    triangle_centers.swap(i, swap_index);
+                }
+                last_left_triangle_index = i;
+            }
+            else{
+                right_indices.push(i);
+            }
+        }
+        let left_node = Node {
+            bounds: left_bounds,
+            start_triangle: nodes[parent_node_index].start_triangle,
+            triangle_count: last_left_triangle_index - nodes[parent_node_index].start_triangle,
+            left_node: None,
+            right_node: None,
+        };
+        nodes.push(left_node);
+        let left_node_index = nodes.len() - 1;
+        nodes[parent_node_index].left_node = Some(left_node_index);
+        let mut current_dept = *depth - 1;
+        create_nodes(triangle_centers, triangles, nodes, &mut current_dept, left_node_index);
+        if !(nodes[left_node_index].triangle_count == nodes[parent_node_index].triangle_count){
+            let right_node = Node {
+                bounds: right_bounds,
+                start_triangle: last_left_triangle_index,
+                triangle_count: nodes[parent_node_index].triangle_count - nodes[left_node_index].triangle_count,
+                left_node: None,
+                right_node: None,
+            };
+            nodes.push(right_node);
+            let right_node_index = nodes.len() - 1;
+            nodes[parent_node_index].right_node = Some(right_node_index);
+            create_nodes(triangle_centers, triangles, nodes, &mut current_dept, right_node_index);
+        }
+    };
+    println!("depth: {depth}");
+}
+
+pub fn intersect_aabb(ray: &Ray, aabb: &[f32; 6]) -> Option<f64> {
+    let mut tmin = f64::NEG_INFINITY;
+    let mut tmax = f64::INFINITY;
+
+    let directions = [ray.direction.x, ray.direction.y, ray.direction.z];
+    let origins = [ray.origin.x, ray.origin.y, ray.origin.z];
+    let aabb = [aabb[0] as f64, aabb[1] as f64, aabb[2] as f64, aabb[3] as f64, aabb[4] as f64, aabb[5] as f64];
+
+    for i in 0..3 {
+        if directions[i].abs() > f64::EPSILON {
+            let t1 = (aabb[i] - origins[i]) / directions[i];
+            let t2 = (aabb[i + 3] - origins[i]) / directions[i];
+
+            tmin = tmin.max(t1.min(t2));
+            tmax = tmax.min(t1.max(t2));
+        } else if origins[i] < aabb[i] || origins[i] > aabb[i + 3] {
+            // Ray is parallel to slab, but origin is not within slab
+            return None;
+        }
+    }
+
+    if tmax >= tmin && tmax >= 0.0 {
+        Some(tmin.max(0.0))  // Return 0.0 if tmin is negative (ray starts inside AABB)
+    } else {
+        None
+    }
 }
 
 pub fn is_on_box_boundary(ray: &Ray, bounds: &[f32; 6],) -> bool {

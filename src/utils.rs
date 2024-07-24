@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use crate::bvh::{is_on_box_boundary, BVH};
+use crate::bvh::{intersect_aabb, is_on_box_boundary, BVH};
 use crate::ray::Ray;
 use crate::vector::{Vec3, write_color};
 
@@ -28,6 +28,56 @@ use crate::vector::{Vec3, write_color};
 //         }
 //     });
 // }
+use std::collections::BinaryHeap;
+use std::cmp::Ordering;
+
+// Wrapper struct for our elements
+#[derive(PartialEq, Eq)]
+struct MinHeapElement<T: Ord>(T);
+
+// Implement Ord and PartialOrd to reverse the ordering
+impl<T: Ord> Ord for MinHeapElement<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.0.cmp(&self.0)
+    }
+}
+
+impl<T: Ord> PartialOrd for MinHeapElement<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// MinHeap struct
+pub struct MinHeap<T: Ord> {
+    heap: BinaryHeap<MinHeapElement<T>>,
+}
+
+impl<T: Ord> MinHeap<T> {
+    pub fn new() -> Self {
+        MinHeap { heap: BinaryHeap::new() }
+    }
+
+    pub fn push(&mut self, item: T) {
+        self.heap.push(MinHeapElement(item));
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        self.heap.pop().map(|MinHeapElement(item)| item)
+    }
+
+    pub fn peek(&self) -> Option<&T> {
+        self.heap.peek().map(|MinHeapElement(item)| item)
+    }
+
+    pub fn len(&self) -> usize {
+        self.heap.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.heap.is_empty()
+    }
+}
 
 
 pub fn generate_image(
@@ -70,6 +120,14 @@ pub fn generate_image(
                 let pixel_center = view_port_center + X * u + Y * v;
                 let ray_direction = (pixel_center - camera_center).normalize();
                 let ray: Ray = Ray::new(camera_center, ray_direction);
+                let intesect_dist = 0.0;
+                let index = 0;
+                loop {
+                    let node = &bvh.nodes[index];
+                    let left_hit_dist = intersect_aabb(&ray, &node.bounds);
+                    let left_hit_dist = intersect_aabb(&ray, &node.bounds);
+
+                }
                 for node in &bvh.nodes{
                     if is_on_box_boundary(&ray, &node.bounds) {
                         hit = true;
