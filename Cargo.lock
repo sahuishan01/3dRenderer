@@ -3149,6 +3149,7 @@ name = "renderer"
 version = "0.1.0"
 dependencies = [
  "glium",
+ "num-traits",
  "rand",
  "rayon",
  "slint",

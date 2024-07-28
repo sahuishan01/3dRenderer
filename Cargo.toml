@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 glium = "0.34.0"
+num-traits = "0.2.19"
 rand = "0.8.5"
 rayon = "1.10.0"
 slint = "1.6.0"

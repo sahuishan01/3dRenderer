@@ -1,450 +1,517 @@
-use core::fmt;
-use std::{ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
+use std::{fmt::Display, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
 
-// conversion to f64
-pub trait ToF64 {
-    fn to_f64(self) -> f64;
+use num_traits::{AsPrimitive, NumCast, ToPrimitive, Zero};
+
+pub trait ConvertTo<U> {
+    fn convert_to(self) -> U;
 }
-impl ToF64 for f32 {
-    fn to_f64(self) -> f64 {
-        self as f64
-    }
-}
-impl ToF64 for f64 {
-    fn to_f64(self) -> f64 {
+
+impl<T> ConvertTo<T> for T {
+    fn convert_to(self) -> T {
         self
     }
 }
-impl ToF64 for i32 {
-    fn to_f64(self) -> f64 {
-        self as f64
-    }
-}
-impl ToF64 for u32 {
-    fn to_f64(self) -> f64 {
-        self as f64
-    }
+
+fn convert_to<T, U>(value: T) -> U
+where
+    T: Into<U>,
+{
+    value.into()
 }
 
-
-// main struct
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Vec3<T> {
-    pub x: T,
-    pub y: T,
-    pub z: T,
+    pub v: [T; 3],
 }
 
-impl<T: std::cmp::PartialEq> PartialEq for Vec3<T> {
+impl<T: PartialEq> PartialEq for Vec3<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y && self.z == other.z
+        self.v[0] == other.v[0] && self.v[1] == other.v[1] && self.v[2] == other.v[2]
     }
 }
 
 // Addition traits
-
-    // scalar addition
-impl<T> AddAssign<T> for Vec3<T> where T: AddAssign + Copy{
+// Vec += Number
+impl<T: AddAssign + Copy> AddAssign<T> for Vec3<T>{
     fn add_assign(&mut self, rhs: T) {
-        self.x += rhs;
-        self.y += rhs;
-        self.z += rhs;
+        self.v[0] += rhs;
+        self.v[1] += rhs;  
+        self.v[2] += rhs;
     }
 }
-
+// Vec += &Vec
+impl<T: AddAssign + Copy> AddAssign<&Vec3<T>> for Vec3<T> {
+    fn add_assign(&mut self, rhs: &Vec3<T>) {
+        self.v[0] += rhs.v[0];
+        self.v[1] += rhs.v[1];
+        self.v[2] += rhs.v[2];
+    }
+}
+// Vec += Vec
+impl<T: AddAssign + Copy> AddAssign<Vec3<T>> for Vec3<T> {
+    fn add_assign(&mut self, rhs: Vec3<T>) {
+        self.v[0] += rhs.v[0];
+        self.v[1] += rhs.v[1];
+        self.v[2] += rhs.v[2];
+    }
+}
+// Vec + Number
 impl<T> Add<T> for Vec3<T>
 where 
     T: Add<Output = T> + Copy,
 {
     type Output = Vec3<T>;
     fn add(self, rhs: T) -> Self::Output {
-        Vec3::<T> {
-            x: self.x + rhs,
-            y: self.y + rhs,
-            z: self.z + rhs
+        Self::Output {
+            v: [self.v[0] + rhs, self.v[1] + rhs, self.v[2] + rhs]
         }
     }
 }
-
-    // addition with self
-impl<T> AddAssign<&Vec3<T>> for Vec3<T>                 // Modifying self
-where
-    T: AddAssign + Copy,
+// Vec + Number
+impl<T> Add<T> for &Vec3<T>
+where 
+    T: Add<Output = T> + Copy,
 {
-    fn add_assign(&mut self, rhs: &Vec3<T>) {
-        self.x += rhs.x;
-        self.y += rhs.y;
-        self.z += rhs.z;
+    type Output = Vec3<T>;
+    fn add(self, rhs: T) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] + rhs, self.v[1] + rhs, self.v[2] + rhs]
+        }
     }
 }
-
-impl<T> Add<&Vec3<T>> for &Vec3<T>                      // Returning new Vec3 without moving data
+// &Vec + &Vec
+impl<T> Add<&Vec3<T>> for &Vec3<T>
+where   
+    T: Add<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn add(self, rhs: &Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] + rhs.v[0], self.v[1] + rhs.v[1], self.v[2] + rhs.v[2]]
+        }
+    }
+}
+// Vec + &Vec
+impl<T> Add<&Vec3<T>> for Vec3<T>
 where
     T: Add<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn add(self, rhs: &Vec3<T>) -> Vec3<T>{
-        Vec3::<T>{
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
+    fn add(self, rhs: &Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] + rhs.v[0], self.v[1] + rhs.v[1], self.v[2] + rhs.v[2]]
         }
     }
 }
-
-
-impl<T> Add<&Vec3<T>> for Vec3<T>                       // Returning new Vec3 without moving first element
+// &Vec + Vec
+impl<T> Add<Vec3<T>> for &Vec3<T>
 where
     T: Add<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn add(self, rhs: &Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
+    fn add(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] + rhs.v[0], self.v[1] + rhs.v[1], self.v[2] + rhs.v[2]]
         }
     }
 }
-
-impl<T> Add for Vec3<T>                                // Returning new Vec3 with both inputs moved
+// Vec + Vec
+impl<T> Add for Vec3<T>
 where
     T: Add<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn add(self, rhs: Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
+    fn add(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] + rhs.v[0], self.v[1] + rhs.v[1], self.v[2] + rhs.v[2]]
         }
     }
 }
 
 
 // subraction traits
-    // subtraction with scalar
-impl<T> SubAssign<T> for Vec3<T> where T: SubAssign + Copy{
+// Vec -= Number
+impl<T: SubAssign + Copy> SubAssign<T> for Vec3<T> {
     fn sub_assign(&mut self, rhs: T) {
-        self.x -= rhs;
-        self.y -= rhs;
-        self.z -= rhs;
+        self.v[0] -= rhs;
+        self.v[1] -= rhs;
+        self.v[2] -= rhs;
     }
 }
-    // subraction with self
-impl<T> SubAssign<&Vec3<T>> for Vec3<T>                 // Modifying self
-where
-    T: SubAssign + Copy,
+// Vec -= &Vec
+impl<T: SubAssign + Copy> SubAssign<&Vec3<T>> for Vec3<T>
 {
     fn sub_assign(&mut self, rhs: &Vec3<T>){
-        self.x -= rhs.x;
-        self.y -= rhs.y;
-        self.z -= rhs.z;
+        self.v[0] -= rhs.v[0];
+        self.v[1] -= rhs.v[1];
+        self.v[2] -= rhs.v[2];
     }
 }
-
-
-impl<T> Sub<T> for Vec3<T>                                // Subracting with scalar
+// Vec -= Vec
+impl<T: SubAssign + Copy> SubAssign<Vec3<T>> for Vec3<T>
+{
+    fn sub_assign(&mut self, rhs: Vec3<T>){
+        self.v[0] -= rhs.v[0];
+        self.v[1] -= rhs.v[1];
+        self.v[2] -= rhs.v[2];
+    }
+}
+// Vec - Number
+impl<T> Sub<T> for Vec3<T>
 where
     T: Sub<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn sub(self, rhs: T) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x - rhs,
-            y: self.y - rhs,
-            z: self.z - rhs,
+    fn sub(self, rhs: T) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] - rhs, self.v[1] - rhs, self.v[2] - rhs]
         }
     }
 }
-
-impl<T> Sub<&Vec3<T>> for &Vec3<T>                      // Returning new Vec3 without moving data
+// &Vec - Number
+impl<T> Sub<T> for &Vec3<T>
 where
     T: Sub<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn sub(self, rhs: &Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-            z: self.z - rhs.z,
+    fn sub(self, rhs: T) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] - rhs, self.v[1] - rhs, self.v[2] - rhs]
         }
     }
 }
-
-impl<T> Sub<&Vec3<T>> for Vec3<T>                       // Returning new Vec3 without moving first element
+// &Vec - &Vec
+impl<T> Sub<&Vec3<T>> for &Vec3<T>
 where
     T: Sub<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn sub(self, rhs: &Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-            z: self.z - rhs.z,
+    fn sub(self, rhs: &Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] - rhs.v[0], self.v[1] - rhs.v[1], self.v[2] - rhs.v[2]]
         }
     }
 }
-
-impl<T> Sub for Vec3<T>                                // Returning new Vec3 with both inputs moved
+// Vec - &Vec
+impl<T> Sub<&Vec3<T>> for Vec3<T>
 where
     T: Sub<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn sub(self, rhs: Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-            z: self.z - rhs.z,
+    fn sub(self, rhs: &Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] - rhs.v[0], self.v[1] - rhs.v[1], self.v[2] - rhs.v[2]]
+        }
+    }
+}
+// &Vec - Vec
+impl<T> Sub<Vec3<T>> for &Vec3<T>
+where
+    T: Sub<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn sub(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] - rhs.v[0], self.v[1] - rhs.v[1], self.v[2] - rhs.v[2]]
+        }
+    }
+}
+// Vec - Vec
+impl<T> Sub for Vec3<T>
+where
+    T: Sub<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn sub(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] - rhs.v[0], self.v[1] - rhs.v[1], self.v[2] - rhs.v[2]]
         }
     }
 }
 
 
 // multiplication traits
-    // multiplication with scalar
-impl<T> MulAssign<T> for Vec3<T>
-where
-    T: MulAssign + Copy
+// Vec *= Number
+impl<T: MulAssign + Copy> MulAssign<T> for Vec3<T>
 {
     fn mul_assign(&mut self, rhs: T) {
-        self.x *= rhs;
-        self.y *= rhs;
-        self.z *= rhs;
+        self.v[0] *= rhs;
+        self.v[1] *= rhs;
+        self.v[2] *= rhs;
     }
 }
-
-    // multiplication with self
-impl<T> MulAssign<&Vec3<T>> for Vec3<T>                   // Modifying self
-where
-    T: MulAssign + Copy,
+// Vec *= &Vec
+impl<T: MulAssign + Copy> MulAssign<&Vec3<T>> for Vec3<T>
 {
     fn mul_assign(&mut self, rhs: &Vec3<T>) {
-        self.x *= rhs.x;
-        self.y *= rhs.y;
-        self.z *= rhs.z;
+        self.v[0] *= rhs.v[0];
+        self.v[1] *= rhs.v[1];
+        self.v[2] *= rhs.v[2];
     }
 }
-
-impl<T> Mul<&Vec3<T>> for &Vec3<T>                      // Returning new Vec3 without moving data
+// Vec *= Vec
+impl<T: MulAssign + Copy> MulAssign<Vec3<T>> for Vec3<T>
+{
+    fn mul_assign(&mut self, rhs: Vec3<T>) {
+        self.v[0] *= rhs.v[0];
+        self.v[1] *= rhs.v[1];
+        self.v[2] *= rhs.v[2];
+    }
+}
+// Vec * Number
+impl<T> Mul<T> for Vec3<T>
 where
     T: Mul<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn mul(self, rhs: &Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x * rhs.x,
-            y: self.y * rhs.y,
-            z: self.z * rhs.z,
+    fn mul(self, rhs: T) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] * rhs, self.v[1] * rhs, self.v[2] * rhs]
         }
     }
 }
-
-impl<T> Mul<&Vec3<T>> for Vec3<T>                       // Returning new Vec3 without moving first element
+// Vec * Number
+impl<T> Mul<T> for &Vec3<T>
 where
     T: Mul<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn mul(self, rhs: &Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x * rhs.x,
-            y: self.y * rhs.y,
-            z: self.z * rhs.z,
+    fn mul(self, rhs: T) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] * rhs, self.v[1] * rhs, self.v[2] * rhs]
         }
     }
 }
-
-impl<T> Mul for Vec3<T>                                // Returning new Vec3 with both inputs moved
+// &Vec * &Vec
+impl<T> Mul<&Vec3<T>> for &Vec3<T>
 where
     T: Mul<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn mul(self, rhs: Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x * rhs.x,
-            y: self.y * rhs.y,
-            z: self.z * rhs.z,
+    fn mul(self, rhs: &Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] * rhs.v[0], self.v[1] * rhs.v[1], self.v[2] * rhs.v[2]]
         }
     }
 }
-
-impl<T> Mul<T> for Vec3<T>                                // Multiplying with scalar
+// Vec * &Vec
+impl<T> Mul<&Vec3<T>> for Vec3<T>
 where
     T: Mul<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn mul(self, rhs: T) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x * rhs,
-            y: self.y * rhs,
-            z: self.z * rhs,
+    fn mul(self, rhs: &Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] * rhs.v[0], self.v[1] * rhs.v[1], self.v[2] * rhs.v[2]]
+        }
+    }
+}
+// &Vec * Vec
+impl<T> Mul<Vec3<T>> for &Vec3<T>
+where
+    T: Mul<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn mul(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] * rhs.v[0], self.v[1] * rhs.v[1], self.v[2] * rhs.v[2]]
+        }
+    }
+}
+// Vec * Vec
+impl<T> Mul for Vec3<T>
+where
+    T: Mul<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn mul(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] * rhs.v[0], self.v[1] * rhs.v[1], self.v[2] * rhs.v[2]]
         }
     }
 }
 
 
-// divison traits
-    // division by scalar
-impl<T> DivAssign<T> for Vec3<T>
-where 
-    T: DivAssign + Copy
+// multiplication traits
+// Vec /= Number
+impl<T: DivAssign + Copy> DivAssign<T> for Vec3<T>
 {
     fn div_assign(&mut self, rhs: T) {
-        self.x /= rhs;
-        self.y /= rhs;
-        self.z /= rhs;
+        self.v[0] /= rhs;
+        self.v[1] /= rhs;
+        self.v[2] /= rhs;
     }
 }
+// Vec /= &Vec
+impl<T: DivAssign + Copy> DivAssign<&Vec3<T>> for Vec3<T>
+{
+    fn div_assign(&mut self, rhs: &Vec3<T>) {
+        self.v[0] /= rhs.v[0];
+        self.v[1] /= rhs.v[1];
+        self.v[2] /= rhs.v[2];
+    }
+}
+// Vec /= Vec
+impl<T: DivAssign + Copy> DivAssign<Vec3<T>> for Vec3<T>
+{
+    fn div_assign(&mut self, rhs: Vec3<T>) {
+        self.v[0] /= rhs.v[0];
+        self.v[1] /= rhs.v[1];
+        self.v[2] /= rhs.v[2];
+    }
+}
+// Vec / Number
 impl<T> Div<T> for Vec3<T>
-where 
+where
     T: Div<Output = T> + Copy,
 {
     type Output = Vec3<T>;
     fn div(self, rhs: T) -> Self::Output {
-        Vec3::<T> {
-            x: self.x / rhs,
-            y: self.y / rhs,
-            z: self.z / rhs
+        Self::Output {
+            v: [self.v[0] / rhs, self.v[1] / rhs, self.v[2] / rhs]
         }
     }
 }
-
-    // division with self
-impl<T> DivAssign<&Vec3<T>> for Vec3<T>                     // Modifying self
+// Vec / Number
+impl<T> Div<T> for &Vec3<T>
 where
-    T: DivAssign + Copy,
+    T: Div<Output = T> + Copy,
 {
-    fn div_assign(&mut self, rhs: &Vec3<T>) {
-        self.x /= rhs.x;
-        self.y /= rhs.y;
-        self.z /= rhs.z;
+    type Output = Vec3<T>;
+    fn div(self, rhs: T) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] / rhs, self.v[1] / rhs, self.v[2] / rhs]
+        }
     }
 }
-
-
-impl<T> Div<&Vec3<T>> for &Vec3<T>                      // Returning new Vec3 without moving data
+// &Vec / &Vec
+impl<T> Div<&Vec3<T>> for &Vec3<T>
 where
     T: Div<Output = T> + Copy,
 {
     type Output = Vec3<T>;
     fn div(self, rhs: &Vec3<T>) -> Self::Output {
-        Vec3::<T> {
-            x: self.x / rhs.x,
-            y: self.y / rhs.y,
-            z: self.z / rhs.z,
+        Self::Output {
+            v: [self.v[0] / rhs.v[0], self.v[1] / rhs.v[1], self.v[2] / rhs.v[2]]
         }
     }
 }
-
-impl<T> Div<&Vec3<T>> for Vec3<T>                       // Returning new Vec3 without moving first element
-where
-    T: Div<Output = T> + Copy,
-{
-    type Output = Self;
-    fn div(self, rhs: &Vec3<T>) -> Self {
-        Self {
-            x: self.x / rhs.x,
-            y: self.y / rhs.y,
-            z: self.z / rhs.z,
-        }
-    }
-}
-
-impl<T> Div for Vec3<T>                                // Returning new Vec3 with both inputs moved
+// Vec / &Vec
+impl<T> Div<&Vec3<T>> for Vec3<T>
 where
     T: Div<Output = T> + Copy,
 {
     type Output = Vec3<T>;
-    fn div(self, rhs: Vec3<T>) -> Vec3<T> {
-        Vec3::<T> {
-            x: self.x / rhs.x,
-            y: self.y / rhs.y,
-            z: self.z / rhs.z,
+    fn div(self, rhs: &Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] / rhs.v[0], self.v[1] / rhs.v[1], self.v[2] / rhs.v[2]]
+        }
+    }
+}
+// &Vec / Vec
+impl<T> Div<Vec3<T>> for &Vec3<T>
+where
+    T: Div<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn div(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] / rhs.v[0], self.v[1] / rhs.v[1], self.v[2] / rhs.v[2]]
+        }
+    }
+}
+// Vec / Vec
+impl<T> Div for Vec3<T>
+where
+    T: Div<Output = T> + Copy,
+{
+    type Output = Vec3<T>;
+    fn div(self, rhs: Vec3<T>) -> Self::Output {
+        Self::Output {
+            v: [self.v[0] / rhs.v[0], self.v[1] / rhs.v[1], self.v[2] / rhs.v[2]]
         }
     }
 }
 
 // other required implementations
-impl<T: PartialOrd> Vec3<T>
-where T: Copy + Mul<Output = T> + Add<Output = T> + ToF64 + Sub<Output = T>
+impl<T> Vec3<T>
+where T: PartialOrd + Copy + Mul<Output = T> + Copy + Add<Output = T> + Copy + Sub<Output = T> + Copy + ToPrimitive
 {
-    pub fn e_new() -> Vec3<f32>{
-        Vec3::<f32> {
-            y: f32::MAX,
-            x: f32::MAX,
-            z: f32::MAX,
-        }
-    }
     pub fn new(x: T, y: T, z: T) -> Self {
-        Self { x, y, z }
+        Self { v: [x, y, z]}
     }
 
     pub fn squared_length(&self) -> T {
-       self.x * self.x + self.y * self.y + self.z * self.z
+       self.v[0] * self.v[0] + self.v[1] * self.v[1] + self.v[2] * self.v[2]
     }
 
     pub fn length(&self) -> f64 {
-        self.squared_length().to_f64().sqrt()
+        self.squared_length().to_f64().unwrap().sqrt()
     }
 
-    pub fn dot(self, other: &Self) -> T {
-        self.x * other.x + self.y * other.y + self.z * other.z
+    pub fn dot(&self, other: &Self) -> T {
+        self.v[0] * other.v[0] + self.v[1] * other.v[1] + self.v[2] * other.v[2]
     }
 
-    pub fn cross(self, other: &Self) -> Vec3<T> {
+    pub fn cross(&self, other: &Self) -> Vec3<T> {
         Vec3::<T> {
-            x: self.y * other.z - other.y * self.z,
-            y: self.z * other.x - self.x * other.z,
-            z: self.x * other.y - self.y * other.x,
+            v: [self.v[1] * other.v[2] - other.v[1] * self.v[2], self.v[2] * other.v[0] - self.v[0] * other.v[2], self.v[0] * other.v[1] - self.v[1] * other.v[0]]
         }
     }
 
-    pub fn normalize(self) -> Vec3<f64> {
+    pub fn normalize(&self) -> Vec3<f64> {
         let length = &self.length();
         Vec3::<f64>{
-            x: &self.x.to_f64() / length,
-            y: &self.y.to_f64() / length,
-            z: &self.z.to_f64() / length,
+            v: [&self.v[0].to_f64().unwrap() / length, &self.v[1].to_f64().unwrap() / length, &self.v[2].to_f64().unwrap() / length]
         }
     }
     
-    pub fn max_component(self) -> T {
-        if self.x > self.y {
-           if self.z > self.x {
-                return self.z
+    pub fn max_component(&self) -> T {
+        if self.v[0] > self.v[1] {
+           if self.v[2] > self.v[0] {
+                return self.v[2]
             }
-            return self.x
+            return self.v[0]
         }
         else{
-            if self.z > self.y {
-                return self.z
+            if self.v[2] > self.v[1] {
+                return self.v[2]
             }
-            return self.y
+            return self.v[1]
         }
     }
 
-    pub fn min_component(self) -> T {
-        if self.x < self.y {
-            if self.z < self.x {
-                 return self.z
+    pub fn min_component(&self) -> T {
+        if self.v[0] < self.v[1] {
+            if self.v[2] < self.v[0] {
+                 return self.v[2]
              }
-             return self.x
+             return self.v[0]
          }
          else{
-             if self.z < self.y {
-                 return self.z
+             if self.v[2] < self.v[1] {
+                 return self.v[2]
              }
-             return self.y
+             return self.v[1]
          }
+    }
+
+    pub fn convert<U>(&self) -> Vec3<U>
+    where
+        U: Copy + NumCast + Zero,
+    {
+        let convert = |x: T| U::from(x).unwrap_or_else(U::zero);
+        Vec3 {
+            v: [convert(self.v[0]), convert(self.v[1]), convert(self.v[2])]
+        }
     }
     
 }
 
 // implementing display for writing into file
-impl<T: fmt::Display> fmt::Display for Vec3<T>{
+impl<T: Display> Display for Vec3<T>{
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{} {} {}", self.x, self.y, self.z)
+        write!(f, "{} {} {}", self.v[0], self.v[1], self.v[2])
     }
 }
 

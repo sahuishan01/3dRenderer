@@ -13,22 +13,22 @@ impl Hash for Vec3<f32>{
     //     let mut hasher = DefaultHasher::new();
     //
     //     // Hash each component individually
-    //     hasher.write_u32(self.x.to_bits());
+    //     hasher.write_u32(self.v[0].to_bits());
     //     state.write_u64(hasher.finish());
     //
     //     hasher = DefaultHasher::new();
-    //     hasher.write_u32(self.y.to_bits());
+    //     hasher.write_u32(self.v[1].to_bits());
     //     state.write_u64(hasher.finish());
     //
     //     hasher = DefaultHasher::new();
-    //     hasher.write_u32(self.z.to_bits());
+    //     hasher.write_u32(self.v[2].to_bits());
     //     state.write_u64(hasher.finish());
     // }
     fn hash<H: Hasher>(&self, state: &mut H) {
 
-        let bytes_x = self.x.to_le_bytes();
-        let bytes_y = self.y.to_le_bytes();
-        let bytes_z = self.z.to_le_bytes();
+        let bytes_x = self.v[0].to_le_bytes();
+        let bytes_y = self.v[1].to_le_bytes();
+        let bytes_z = self.v[2].to_le_bytes();
 
         // Concatenate the byte representations of x, y, and z
         let combined_bytes: Vec<u8> = [&bytes_x, &bytes_y, &bytes_z]
@@ -39,7 +39,7 @@ impl Hash for Vec3<f32>{
         state.write(&combined_bytes);
     }
 }
-pub fn hash_point(p: Vec3<f32>) -> u64 {
+pub fn hash_point(p: &Vec3<f32>) -> u64 {
     let mut hasher = DefaultHasher::new();
     p.hash(&mut hasher);
     hasher.finish()
@@ -63,7 +63,6 @@ impl Face{
 
 
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
 pub struct Triangle{
     pub normal: Vec3<f32>,
     pub vertices: [Vec3<f32>; 3],
@@ -72,12 +71,31 @@ pub struct Triangle{
 impl Triangle{
     pub fn new() -> Self {
         Self{
-            normal: Vec3::<f32>::e_new(),
-            vertices: [Vec3::<f32>::e_new(); 3],
+            normal: Vec3::new(0., 0., 0.),
+            vertices: [Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.)],
             padding: [0, 0],
         }
     }
 }
+
+
+#[derive(Clone)]
+pub struct Triangle2{
+    pub normal: Vec3<f32>,
+    pub vertices: [Vec3<f32>; 3],
+    pub padding: [u8; 2],
+}
+
+impl Triangle2{
+    pub fn new() -> Self {
+        Self{
+            normal: Vec3::new(0., 0., 0.),
+            vertices: [Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.)],
+            padding: [0, 0],
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Mesh{
     pub normals: Vec<Vec3<f32>>,
@@ -90,8 +108,8 @@ pub struct Mesh{
 
 impl Mesh{
     pub fn new(num_faces: usize) -> Self {
-        let normals: Vec<Vec3<f32>> = vec![Vec3::<f32>::e_new(); num_faces];
-        let vertices: Vec<Vec3<f32>> = vec![Vec3::<f32>::e_new(); num_faces*3];
+        let normals: Vec<Vec3<f32>> = vec![Vec3::new(0., 0., 0.); num_faces];
+        let vertices: Vec<Vec3<f32>> = vec![Vec3::new(0., 0., 0.); num_faces*3];
         let faces: Vec<Face> = vec![Face::new(); num_faces];
         let num_faces = num_faces as u32;
         Self {normals, vertices, faces, num_faces, loaded: false, processed: false}
@@ -122,17 +140,17 @@ impl Mesh{
             writeln!(
                 file,
                 "  facet normal {} {} {}",
-                normal.x, normal.y, normal.z
+                normal.v[0], normal.v[1], normal.v[2]
             )?;
             writeln!(file, "    outer loop")?;
 
-            let v1 = self.vertices[face.v1 as usize];
-            let v2 = self.vertices[face.v2 as usize];
-            let v3 = self.vertices[face.v3 as usize];
+            let v1 = &self.vertices[face.v1 as usize];
+            let v2 = &self.vertices[face.v2 as usize];
+            let v3 = &self.vertices[face.v3 as usize];
 
-            writeln!(file, "      vertex {} {} {}", v1.x, v1.y, v1.z)?;
-            writeln!(file, "      vertex {} {} {}", v2.x, v2.y, v2.z)?;
-            writeln!(file, "      vertex {} {} {}", v3.x, v3.y, v3.z)?;
+            writeln!(file, "      vertex {} {} {}", v1.v[0], v1.v[1], v1.v[2])?;
+            writeln!(file, "      vertex {} {} {}", v2.v[0], v2.v[1], v2.v[2])?;
+            writeln!(file, "      vertex {} {} {}", v3.v[0], v3.v[1], v3.v[2])?;
 
             writeln!(file, "    endloop")?;
             writeln!(file, "  endfacet")?;
@@ -181,10 +199,10 @@ pub fn load_mesh(path: &PathBuf) -> Result<Mesh, String>{
     let mut f_count =  0;
     let mut mesh: Mesh = Mesh::new(num_triangles as usize);
     while i < triangles.len() {
-        mesh.normals[i] = triangles[i].normal;
-        mesh.vertices[i*3] = triangles[i].vertices[0];
-        mesh.vertices[i*3+1] = triangles[i].vertices[1];
-        mesh.vertices[i*3+2] = triangles[i].vertices[2];
+        mesh.normals[i] = Vec3::new(triangles[i].normal.v[0], triangles[i].normal.v[1], triangles[i].normal.v[2]);
+        mesh.vertices[i*3] = Vec3::new(triangles[i].vertices[0].v[0], triangles[i].vertices[0].v[1], triangles[i].vertices[0].v[2]);
+        mesh.vertices[i*3+1] = Vec3::new(triangles[i].vertices[1].v[0], triangles[i].vertices[1].v[1], triangles[i].vertices[1].v[2]);
+        mesh.vertices[i*3+2] = Vec3::new(triangles[i].vertices[2].v[0], triangles[i].vertices[2].v[1], triangles[i].vertices[2].v[2]);
         mesh.faces[i] = Face{
             v1: f_count,
             v2: f_count + 1,
@@ -218,18 +236,18 @@ pub fn process_mesh(mesh: &Mesh) -> Result<Mesh, String>{
     let mut point_map: HashMap<u64, usize> = HashMap::new();
     for i in 0..mesh.faces.len(){
         let face = &mesh.faces[i];
-        temp_mesh.normals.push(mesh.normals[i]);
+        temp_mesh.normals.push(Vec3::new(mesh.normals[i].v[0], mesh.normals[i].v[1], mesh.normals[i].v[2]));
         let mut f = Face::new();
-        let h1 = hash_point(mesh.vertices[face.v1 as usize]);
-        let h2 = hash_point(mesh.vertices[face.v2 as usize]);
-        let h3 = hash_point(mesh.vertices[face.v3 as usize]);
+        let h1 = hash_point(&mesh.vertices[face.v1 as usize]);
+        let h2 = hash_point(&mesh.vertices[face.v2 as usize]);
+        let h3 = hash_point(&mesh.vertices[face.v3 as usize]);
         if let Some(index) = point_map.get(&h1) {
             f.v1 = index.clone() as u32;
         }
         else{
             point_map.insert(h1, temp_mesh.vertices.len());
             f.v1 = temp_mesh.vertices.len() as u32;
-            temp_mesh.vertices.push(mesh.vertices[face.v1 as usize]);
+            temp_mesh.vertices.push(Vec3::new(mesh.vertices[face.v1 as usize].v[0], mesh.vertices[face.v1 as usize].v[1], mesh.vertices[face.v1 as usize].v[2]));
         }
         if let Some(index) = point_map.get(&h2) {
             f.v2 = index.clone() as u32;
@@ -237,7 +255,7 @@ pub fn process_mesh(mesh: &Mesh) -> Result<Mesh, String>{
         else{
             point_map.insert(h2, temp_mesh.vertices.len());
             f.v2 = temp_mesh.vertices.len() as u32;
-            temp_mesh.vertices.push(mesh.vertices[face.v2 as usize]);
+            temp_mesh.vertices.push(Vec3::new(mesh.vertices[face.v2 as usize].v[0], mesh.vertices[face.v2 as usize].v[1], mesh.vertices[face.v2 as usize].v[2]));
         }
         if let Some(index) = point_map.get(&h3) {
             f.v3 = index.clone() as u32;
@@ -245,7 +263,7 @@ pub fn process_mesh(mesh: &Mesh) -> Result<Mesh, String>{
         else{
             point_map.insert(h3, temp_mesh.vertices.len());
             f.v3 = temp_mesh.vertices.len() as u32;
-            temp_mesh.vertices.push(mesh.vertices[face.v3 as usize]);
+            temp_mesh.vertices.push(Vec3::new(mesh.vertices[face.v3 as usize].v[0], mesh.vertices[face.v3 as usize].v[1], mesh.vertices[face.v3 as usize].v[2]));
         }
         temp_mesh.faces.push(f);
     }
