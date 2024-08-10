@@ -1,6 +1,6 @@
 use std::{fmt::Display, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
 
-use num_traits::{AsPrimitive, NumCast, ToPrimitive, Zero};
+use num_traits::{Float, NumCast, ToPrimitive, Zero};
 
 pub trait ConvertTo<U> {
     fn convert_to(self) -> U;
@@ -435,7 +435,7 @@ where
 
 // other required implementations
 impl<T> Vec3<T>
-where T: PartialOrd + Copy + Mul<Output = T> + Copy + Add<Output = T> + Copy + Sub<Output = T> + Copy + ToPrimitive
+where T:  PartialOrd + Copy + Mul<Output = T> + Copy + Add<Output = T> + Copy + Sub<Output = T> + Copy + ToPrimitive
 {
     pub fn new(x: T, y: T, z: T) -> Self {
         Self { v: [x, y, z]}
@@ -504,6 +504,10 @@ where T: PartialOrd + Copy + Mul<Output = T> + Copy + Add<Output = T> + Copy + S
         Vec3 {
             v: [convert(self.v[0]), convert(self.v[1]), convert(self.v[2])]
         }
+    }
+    
+    pub fn angle(&self, other: &Self) -> f64 {
+        (self.dot(other).to_f64().unwrap() / (self.length() * other.length())).acos()
     }
     
 }

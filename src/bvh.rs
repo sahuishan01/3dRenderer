@@ -7,7 +7,7 @@ use crate::ray::Ray;
 use crate::utils::MinHeap;
 use crate::Triangle2;
 use crate::Vec3;
-use crate::mesh::{Mesh};
+use crate::mesh::Mesh;
 
 #[derive(Clone)]
 pub struct Node{
@@ -25,12 +25,12 @@ pub struct BVH {
 
 pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH{
     let mut triangles = vec![Triangle2::new(); mesh.faces.len()];
-    let mut triangle_centers: Vec<Vec3<f32>> = vec![Vec3::new(0., 0., 0.); mesh.faces.len()];
+    let mut triangle_centers: Vec<Vec3<f32>> = vec![Vec3{v: [0., 0., 0.]}; mesh.faces.len()];
     let chunk_size = mesh.faces.len().div_ceil(max_num_threads());
     let bounds = Arc::new(Mutex::new([f32::MAX, f32::MAX, f32::MAX, f32::MIN, f32::MIN, f32::MIN]));
     triangle_centers.par_chunks_mut(chunk_size).zip(triangles.par_chunks_mut(chunk_size)).enumerate().for_each(|(chunk_idx, (chunk1, chunk2))|{
-        let mut local_min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-        let mut local_max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+        let mut local_min = Vec3{v: [f32::MAX, f32::MAX, f32::MAX]};
+        let mut local_max = Vec3{v: [f32::MIN, f32::MIN, f32::MIN]};
         for i in 0..chunk1.len(){
             let global_index = chunk_idx * chunk_size + i;
             if global_index < mesh.faces.len() {
@@ -41,9 +41,9 @@ pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH{
                 chunk1[i].v[0] = (mesh.vertices[v1].v[0] + mesh.vertices[v2].v[0] + mesh.vertices[v3].v[0]) / 3.0;
                 chunk1[i].v[1] = (mesh.vertices[v1].v[1] + mesh.vertices[v2].v[1] + mesh.vertices[v3].v[1]) / 3.0;
                 chunk1[i].v[2] = (mesh.vertices[v1].v[2] + mesh.vertices[v2].v[2] + mesh.vertices[v3].v[2]) / 3.0;
-                chunk2[i].vertices[0] = Vec3::new(mesh.vertices[v1].v[0], mesh.vertices[v1].v[1], mesh.vertices[v1].v[2]);
-                chunk2[i].vertices[1] = Vec3::new(mesh.vertices[v2].v[0], mesh.vertices[v2].v[1], mesh.vertices[v2].v[2]);
-                chunk2[i].vertices[2] = Vec3::new(mesh.vertices[v3].v[0], mesh.vertices[v3].v[1], mesh.vertices[v3].v[2]);
+                chunk2[i].vertices[0] = Vec3{v: [mesh.vertices[v1].v[0], mesh.vertices[v1].v[1], mesh.vertices[v1].v[2]]};
+                chunk2[i].vertices[1] = Vec3{v: [mesh.vertices[v2].v[0], mesh.vertices[v2].v[1], mesh.vertices[v2].v[2]]};
+                chunk2[i].vertices[2] = Vec3{v: [mesh.vertices[v3].v[0], mesh.vertices[v3].v[1], mesh.vertices[v3].v[2]]};
                 chunk2[i].normal = Vec3::new(mesh.normals[global_index].v[0], mesh.normals[global_index].v[1], mesh.normals[global_index].v[2]);
                 let x_max = chunk2[i].vertices[0].v[0].max(chunk2[i].vertices[1].v[0].max(chunk2[i].vertices[2].v[0]));
                 let y_max = chunk2[i].vertices[0].v[1].max(chunk2[i].vertices[1].v[1].max(chunk2[i].vertices[2].v[1]));

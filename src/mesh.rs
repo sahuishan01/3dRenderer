@@ -3,11 +3,10 @@ use std::hash::{Hash, Hasher};
 use std::io::{self,Write, Read, Seek, SeekFrom};
 use std::collections::hash_map::DefaultHasher;
 use std::path::PathBuf;
-use rayon::prelude::*;
+use rayon::{max_num_threads, prelude::*};
 use std::fs::File;
 use crate::Vec3;
 
-static NUM_THREADS: usize = 24;
 impl Hash for Vec3<f32>{
     // pub fn hash<H: Hasher>(&self, state: &mut H) {
     //     let mut hasher = DefaultHasher::new();
@@ -284,7 +283,7 @@ pub fn add_meshes(meshes: &mut Vec<(PathBuf, Mesh)>,  paths: Vec<PathBuf>) {
     // for multithreading
 
     // chunks for threads
-    let chunk_size = (meshes.len() + NUM_THREADS - 1) / NUM_THREADS;
+    let chunk_size = (meshes.len() + max_num_threads() - 1) / max_num_threads();
     meshes.par_chunks_mut(chunk_size).enumerate().skip(start_index).for_each(|(_chunk_idx, chunk)|{
         for (_index, (path, mesh)) in chunk.iter_mut().enumerate(){
             // let global_index = chunk_idx * chunk_size + index + start_index;
@@ -349,8 +348,8 @@ pub fn process_meshes(meshes: &mut Vec<(PathBuf, Mesh)>, start_idx: usize){
     let start_time = std::time::Instant::now();
 
     // processing with chunks
-    let meshes_per_thread = meshes.len() / NUM_THREADS;
-    let remaining_meshes = meshes.len() % NUM_THREADS;
+    let meshes_per_thread = meshes.len() / max_num_threads();
+    let remaining_meshes = meshes.len() % max_num_threads();
     if meshes_per_thread == 0 {
         //processing individually on separate threads
         meshes.par_iter_mut().enumerate().skip(start_idx).for_each(|(_index, (path, mesh))| {
@@ -404,19 +403,19 @@ pub fn process_meshes(meshes: &mut Vec<(PathBuf, Mesh)>, start_idx: usize){
 pub fn sort_meshes_by_num_faces(meshes: &mut Vec<(PathBuf, Mesh)>){
     let swap_start = std::time::Instant::now();
     meshes.sort_by(|a,b| b.1.num_faces.cmp(&a.1.num_faces));
-    let mut indices: Vec<Vec<usize>> = vec![Vec::new(); NUM_THREADS];
+    let mut indices: Vec<Vec<usize>> = vec![Vec::new(); max_num_threads()];
     let mut i: usize = 0;
-    let chunk_size = meshes.len()/ NUM_THREADS;
-    let extra_files = meshes.len() % NUM_THREADS;
-    while i  < NUM_THREADS {
+    let chunk_size = meshes.len()/ max_num_threads();
+    let extra_files = meshes.len() % max_num_threads();
+    while i  < max_num_threads() {
         let mut j: usize = 0;
         let mut reverse = false;
         while j < chunk_size{
             if reverse == false{
-                indices[i].push(i + (j * NUM_THREADS));
+                indices[i].push(i + (j * max_num_threads()));
             }
             else{
-                indices[i].push(((j+1) * NUM_THREADS) - i - 1);
+                indices[i].push(((j+1) * max_num_threads()) - i - 1);
             }
             reverse = !reverse;
             j+=1;
@@ -424,9 +423,9 @@ pub fn sort_meshes_by_num_faces(meshes: &mut Vec<(PathBuf, Mesh)>){
         i +=1;
     }
     let mut j = 0;
-    println!("extra files: {}, last index is: {}", extra_files, NUM_THREADS * chunk_size + j);
+    println!("extra files: {}, last index is: {}", extra_files, max_num_threads() * chunk_size + j);
     while j < extra_files{
-        indices[j].push(NUM_THREADS  * chunk_size + j);
+        indices[j].push(max_num_threads()  * chunk_size + j);
         j+=1;
     }
 
