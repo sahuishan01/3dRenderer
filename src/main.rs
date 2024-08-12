@@ -5,12 +5,14 @@ mod bvh;
 mod mesh;
 
 use bvh::BVH;
+use num_traits::ToPrimitive;
 use ray::Camera;
 use vector::Vec3;
 
 use slint::private_unstable_api::re_exports::EventResult;
 
 use slint::{quit_event_loop, PhysicalSize, RenderingState, Rgba8Pixel, SharedPixelBuffer, Weak};
+use std::f32::consts::PI;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 // use std::time::{Duration, Instant};
@@ -19,7 +21,7 @@ use std::time::Instant;
 use slint::platform::WindowEvent;
 // use walkdir::WalkDir;
 use mesh::*;
-use utils::{generate_image, generate_image2};
+use utils::{generate_image};
 use crate::bvh::create_bvh;
 
 
@@ -27,8 +29,6 @@ fn update_image(handle_weak: Weak<MainWindow>, width: &u32, height: &u32, camera
     if *width==0 || *height==0 { return; };
     println!("width: {}, height: {}, camera position: {:?}", width, height, camera.position);
     let aspect_ratio = *width as f32 / *height as f32;
-    let vw_height = 2. * (camera.view_angle / 2.).tan() * camera.near;
-    let vw_width = vw_height *  aspect_ratio;
     let half_height = (camera.view_angle / 2.).tan() * camera.near;
     let half_width = aspect_ratio * half_height;
     
@@ -36,16 +36,6 @@ fn update_image(handle_weak: Weak<MainWindow>, width: &u32, height: &u32, camera
     let x = camera.up.cross(&z).normalize().convert();
     let y: Vec3<f32> = z.cross(&x).normalize().convert();
     
-
-    let viewport_u = &x * vw_width;
-    let viewport_v = &y * -1. * vw_height;
-
-    let pixel_delta_u = &viewport_u / *width as f32;
-    let pixel_delta_v = &viewport_v / *height as f32;
-    let viewport_upper_left = &camera.position - &z * camera.near - &viewport_u / 2.0 - &viewport_v / 2.0;
-    let pixel00_loc = viewport_upper_left + (&pixel_delta_u + &pixel_delta_v) * 0.5;
-
-
     let pixel_width = 2. * half_width / *width as f32;
     let pixel_height = 2. * half_height / *height as f32;
 
@@ -53,7 +43,6 @@ fn update_image(handle_weak: Weak<MainWindow>, width: &u32, height: &u32, camera
     // let th = thread::spawn(move || {
         let mut pixel_buffer = SharedPixelBuffer::<Rgba8Pixel>::new(*width, *height);
         let camera = camera.clone();
-        // generate_gradient(pixel_buffer.width(), pixel_buffer.make_mut_bytes(), pixel00_loc, pixel_delta_u, pixel_delta_v, camera_center);
         let thread = std::thread::spawn(move || {
             let bvh = bvh.lock().unwrap();
             generate_image(
@@ -70,7 +59,6 @@ fn update_image(handle_weak: Weak<MainWindow>, width: &u32, height: &u32, camera
                 x,
                 y
             );
-            // generate_image2(pixel_buffer.width(), pixel_buffer.make_mut_bytes(), pixel00_loc, pixel_delta_u, pixel_delta_v,&camera.position);
             let _res = handle_weak.upgrade_in_event_loop(move |handle| handle.set_canvas_source(slint::Image::from_rgba8(pixel_buffer)));
             println!("update finished");
         });
@@ -105,9 +93,9 @@ fn main() {
     let width = Arc::new(Mutex::new(800));
     let height = Arc::new(Mutex::new(800));
 
-    let camera = Arc::new(Mutex::new(Camera::new(Some(Vec3::new(0., 0., -8.)),
+    let camera = Arc::new(Mutex::new(Camera::new(Some(Vec3::new(0., 0., -18.)),
                                     Some(Vec3::new(0., 1., 0.)),
-                                    Some(Vec3{v:[0., 0., 0.]}), Some(0.001), None, Some(35.))));
+                                    Some(Vec3{v:[0., 0., 0.]}), Some(0.001), None, Some(35. * (PI / 180.)))));
     let cc1 = Arc::clone(&camera);
     let cc2 = Arc::clone(&camera);
     let cc3 = Arc::clone(&camera);
