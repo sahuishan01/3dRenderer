@@ -1,6 +1,6 @@
 use std::{fmt::Display, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign}};
 
-use num_traits::{Float, NumCast, ToPrimitive, Zero};
+use num_traits::{NumCast, ToPrimitive, Zero};
 
 pub trait ConvertTo<U> {
     fn convert_to(self) -> U;
@@ -459,10 +459,10 @@ where T:  PartialOrd + Copy + Mul<Output = T> + Copy + Add<Output = T> + Copy + 
         }
     }
 
-    pub fn normalize(&self) -> Vec3<f64> {
-        let length = &self.length();
-        Vec3::<f64>{
-            v: [&self.v[0].to_f64().unwrap() / length, &self.v[1].to_f64().unwrap() / length, &self.v[2].to_f64().unwrap() / length]
+    pub fn normalize(&self) -> Vec3<f32> {
+        let length = self.length() as f32;
+        Vec3::<f32>{
+            v: [&self.v[0].to_f32().unwrap() / length, &self.v[1].to_f32().unwrap() / length, &self.v[2].to_f32().unwrap() / length]
         }
     }
     
@@ -494,6 +494,10 @@ where T:  PartialOrd + Copy + Mul<Output = T> + Copy + Add<Output = T> + Copy + 
              }
              return self.v[1]
          }
+    }
+
+    pub fn to_array(&self) -> [T; 3]{
+        [self.v[0], self.v[1], self.v[2]]
     }
 
     pub fn convert<U>(&self) -> Vec3<U>

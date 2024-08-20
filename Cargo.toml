@@ -4,10 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bytemuck = { version = "1.16", features = [ "derive" ] }
+env_logger = "0.11.5"
 glium = "0.34.0"
 num-traits = "0.2.19"
+pollster = "0.3.0"
 rand = "0.8.5"
 rayon = "1.10.0"
-slint = "1.6.0"
 walkdir = "2.5.0"
-winit = "0.30.3"
+wgpu = "22.1.0"
+winit = "0.30.5"

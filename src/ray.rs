@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use crate::vector::Vec3;
 
 #[derive(Clone)]
@@ -42,6 +44,20 @@ pub enum Direction {
     Down
 }
 
+impl Default for Camera {
+    fn default() -> Self {
+        Camera{
+            position: Vec3::<f32>::new(0., 0., 0.),
+            up: Vec3::<f32>::new(0., 1., 0.),
+            focus: Vec3::<f32>::new(0., 0., 0.),
+            far: 10000000.,
+            near: 0.0001,
+            view_angle: 35.* PI/180.,
+        }
+    }
+    
+}
+
 impl Camera{
     pub fn new(position: Option<Vec3<f32>>, up: Option<Vec3<f32>>, focus: Option<Vec3<f32>>, near: Option<f32>, far: Option<f32>, view_angle: Option<f32>) -> Self{
         Self {
@@ -55,6 +71,8 @@ impl Camera{
     }
     
     pub fn movement(&mut self, direction: Direction, rotate: &bool){
+
+
         let movement_direction = match direction{
             Direction::Backward => (&self.focus - &self.position).normalize() * -0.1,
             Direction::Forward => (&self.focus - &self.position).normalize() * 0.1,
@@ -63,10 +81,18 @@ impl Camera{
             Direction::Left => (&self.focus - &self.position).cross(&self.up).normalize() * -0.1,
             Direction::Right => (&self.focus - &self.position).cross(&self.up).normalize() * 0.1,
         };
-        let movement_direction: Vec3<f32> = movement_direction.convert();
-        self.position += &movement_direction;
+        let new_position = &self.position + &movement_direction;
         if !rotate {
             self.focus += movement_direction;
         }
+        else{
+            match direction {
+                Direction::Up | Direction::Down => {
+                    self.up = (&self.focus - &new_position).cross(&(&self.up).cross(&(&self.focus - &self.position)).normalize()).normalize();
+                },
+                _=>{}
+            }
+        }
+        self.position = new_position;
     }
 }
