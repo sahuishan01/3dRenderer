@@ -5,6 +5,8 @@
 // use crate::Triangle2;
 
 use std::mem;
+use bytemuck::NoUninit;
+use rand::Rng;
 
 pub fn struct_to_bytes<T>(data: &T) -> &[u8] {
     unsafe {
@@ -15,6 +17,32 @@ pub fn struct_to_bytes<T>(data: &T) -> &[u8] {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, NoUninit)]
+pub struct Sphere {
+    pub center: [f32; 3],
+    pub radius: f32,
+    pub color: [f32; 4],
+    pub material: u32,
+    pub padding_: [f32; 3]
+}
+
+impl Default for Sphere {
+    fn default() -> Self {
+        Sphere {
+            center: [0., 0., 0.],
+            radius: 0.,
+            color: [1.0, 1.0, 0., 1.0],
+            material: 0,
+            padding_: [0., 0., 0.]
+        }
+    }
+}
+
+pub fn generate_random_id() -> u32 {
+    let mut rng = rand::thread_rng();
+    rng.gen()
+}
 // pub fn hitSphere(r: &Ray, sphere_radius: f32) -> f32 {
 //     let a = r.direction.dot(&r.direction);
 //     let b = 2.0 * r.origin.dot(&r.direction);

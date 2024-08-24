@@ -33,6 +33,7 @@ pub struct  Camera {
     pub near: f32,
     pub far: f32,
     pub view_angle: f32,
+    pub zoom: f32,
 }
 
 pub enum Direction {
@@ -52,6 +53,7 @@ impl Default for Camera {
             focus: Vec3::<f32>::new(0., 0., 0.),
             far: 10000000.,
             near: 0.0001,
+            zoom: 1.,
             view_angle: 35.* PI/180.,
         }
     }
@@ -59,27 +61,29 @@ impl Default for Camera {
 }
 
 impl Camera{
-    pub fn new(position: Option<Vec3<f32>>, up: Option<Vec3<f32>>, focus: Option<Vec3<f32>>, near: Option<f32>, far: Option<f32>, view_angle: Option<f32>) -> Self{
+    pub fn new(position: Option<Vec3<f32>>, up: Option<Vec3<f32>>, focus: Option<Vec3<f32>>, near: Option<f32>, far: Option<f32>, view_angle: Option<f32>, zoom: Option<f32>) -> Self{
         Self {
             position: position.unwrap_or(Vec3::new(0.0, 0.0, 0.0)),
             up: up.unwrap_or(Vec3::new(0., 1., 0.0)),
             focus: focus.unwrap_or(Vec3::new(0.0, 0.0, 1.0)),
             near: near.unwrap_or(0.1),
             far: far.unwrap_or(10000000000.),
-            view_angle: view_angle.unwrap_or(30.)
+            view_angle: view_angle.unwrap_or(30.),
+            zoom: zoom.unwrap_or(1.)
         }
     }
     
     pub fn movement(&mut self, direction: Direction, rotate: &bool){
-
+        
+        let factor = (&self.focus - &self.position).length() as f32 / 200.;
 
         let movement_direction = match direction{
-            Direction::Backward => (&self.focus - &self.position).normalize() * -0.1,
-            Direction::Forward => (&self.focus - &self.position).normalize() * 0.1,
-            Direction::Down => self.up.clone().normalize() * -0.1,
-            Direction::Up => self.up.clone().normalize() * 0.1,
-            Direction::Left => (&self.focus - &self.position).cross(&self.up).normalize() * -0.1,
-            Direction::Right => (&self.focus - &self.position).cross(&self.up).normalize() * 0.1,
+            Direction::Backward => (&self.focus - &self.position).normalize() * - factor,
+            Direction::Forward => (&self.focus - &self.position).normalize() * factor,
+            Direction::Down => self.up.clone().normalize() * - factor,
+            Direction::Up => self.up.clone().normalize() * factor,
+            Direction::Left => (&self.focus - &self.position).cross(&self.up).normalize() * - factor,
+            Direction::Right => (&self.focus - &self.position).cross(&self.up).normalize() * factor,
         };
         let new_position = &self.position + &movement_direction;
         if !rotate {

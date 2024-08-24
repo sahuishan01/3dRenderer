@@ -1,9 +1,9 @@
-use std::f32::consts::PI;
 use std::sync::Arc;
 
+use utils::generate_random_id;
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -13,8 +13,8 @@ pub mod ray;
 pub mod vector;
 pub mod utils;
 
-use crate::vector::Vec3;
 use crate::ray::Camera;
+use crate::utils::Sphere;
 
 const VERTICES: &[Vertex] = &[
     Vertex { position: [-1.0, -1.0, 0.0]}, // Bottom-left
@@ -27,6 +27,38 @@ const INDICES: &[u16] = &[
     0, 1, 2,  // First triangle
     1, 3, 2,  // Second triangle
 ];
+
+const SPHERES: &[Sphere] = &[
+    Sphere{
+        center: [0., 0., 0.],
+        radius: 2.,
+        color: [0.0, 1.0, 0., 1.0],
+        material: 1,
+        padding_: [1., 1., 1.]
+    },
+    Sphere{
+        center: [5., 0., 0.],
+        radius: 2.,
+        color: [1., 0., 1., 1.],
+        material: 1,
+        padding_: [1., 1., 1.]
+    },
+    Sphere{
+        center: [5., 0., 5.],
+        radius: 2.,
+        color: [1., 1., 0., 1.],
+        material: 1,
+        padding_: [1., 1., 1.]
+    },
+    Sphere{
+        center: [15., 0., 5.],
+        radius: 2.,
+        color: [1., 1., 1., 1.],
+        material: 1,
+        padding_: [1., 1., 1.]
+    }
+];
+
 
 
 #[repr(C)]
@@ -66,7 +98,7 @@ impl CamInfo {
         self.cam_info[0][0] = camera.position.v[0];
         self.cam_info[0][1] = camera.position.v[1];
         self.cam_info[0][2] = camera.position.v[2];
-        self.cam_info[2][1] = (camera.view_angle / 2.).tan() * camera.near;
+        self.cam_info[2][1] = (camera.view_angle / (2. * camera.zoom)).tan() * camera.near;
         self.cam_info[2][0] = aspect_ratio * self.cam_info[2][1];
         let z = (&camera.focus - &camera.position).normalize();
         let x = camera.up.cross(&z).normalize();
@@ -86,7 +118,6 @@ impl CamInfo {
 }
 
 struct State<'a>{
-    camera: Camera,
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -104,9 +135,7 @@ struct State<'a>{
 }
 
 impl<'a> State<'a>{
-    async fn new(window: Arc<Window>) -> Self {
-        let camera = Camera::new(Some(Vec3::new(0., 0., -28.)),Some(Vec3::new(0., 1., 0.)),
-    Some(Vec3{v:[0., 0., 0.]}), Some(0.001), None, Some(35. * (PI / 180.)));
+    async fn new(window: Arc<Window>, camera: &Camera) -> Self {
         let size = window.inner_size();
         let instance_descriptor = wgpu::InstanceDescriptor{
             backends: wgpu::Backends::VULKAN, ..Default::default()
@@ -195,6 +224,12 @@ impl<'a> State<'a>{
             contents: bytemuck::cast_slice(&[cam_info]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        let spheres_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sphere Uniform Buffer"),
+            size: (std::mem::size_of::<Sphere>() * 200) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let cam_info_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("CamInfo Group Layout"),
             entries: &[
@@ -207,16 +242,30 @@ impl<'a> State<'a>{
                         min_binding_size: None,
                     },
                     count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 }
             ],
         });
-        let cam_info_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let cam_info_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("cam_info Bind Group"),
             layout: &cam_info_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: cam_info_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: spheres_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -284,9 +333,10 @@ impl<'a> State<'a>{
             }
         );
         let num_indices = INDICES.len() as u32;
-         
+        let mut sphere_data = [Sphere::default(); 200 ];
+        sphere_data[..SPHERES.len()].copy_from_slice(SPHERES);
+        queue.write_buffer(&spheres_buffer, 0, bytemuck::cast_slice(&sphere_data));
         Self {
-            camera,
             surface,
             device,
             queue,
@@ -300,7 +350,7 @@ impl<'a> State<'a>{
             mouse_uniform,
             cam_info,
             cam_info_buffer,
-            cam_info_group: cam_info_bind_group,
+            cam_info_group,
         }  
     }
 
@@ -355,9 +405,9 @@ impl<'a> State<'a>{
 struct App<'a> {
     window: Option<Arc<Window>>,
     state: Option<State<'a>>,
-    ctrl_state: bool,
-    mouse_state: [bool ; 3],
-    last_mouse_pos: PhysicalPosition<f64>
+    movements: [bool ; 3], // rotaion, pan , unknow
+    last_mouse_pos: PhysicalPosition<f64>,
+    camera: Camera,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -367,7 +417,7 @@ impl<'a> ApplicationHandler for App<'a> {
             let window = Arc::new(event_loop.create_window(Window::default_attributes()).unwrap());
             self.window = Some(window.clone());
 
-            let state = pollster::block_on(State::new(window.clone()));
+            let state = pollster::block_on(State::new(window.clone(), &self.camera));
             self.state = Some(state);
         }
     }
@@ -382,38 +432,13 @@ impl<'a> ApplicationHandler for App<'a> {
                 event_loop.exit();
             },
             WindowEvent::Resized(physical_size) => {
-                self.state.as_mut().unwrap().resize(physical_size);
-                let size = self.state.as_ref().unwrap().size;
-                let camera = &self.state.as_ref().unwrap().camera;
-                let aspect_ratio = size.width as f32 / size.height as f32;
-                let half_height = (camera.view_angle / 2.).tan() * camera.near;
-                let half_width = aspect_ratio * half_height;
-                let pixel_width = 2. * half_width / size.width as f32;
-                let pixel_height = 2. * half_height / size.height as f32;
-                let cam_info = &mut self.state.as_mut().unwrap().cam_info;
-                cam_info.cam_info[1][2] = pixel_width;
-                cam_info.cam_info[1][3] = pixel_height;
-                cam_info.cam_info[2][0] = half_width;
-                cam_info.cam_info[2][1] = half_height;
-                self.state.as_ref().unwrap().queue.write_buffer(&self.state.as_ref().unwrap().cam_info_buffer, 0, bytemuck::cast_slice(&[self.state.as_ref().unwrap().cam_info]));
-                let _ = self.state.as_mut().unwrap().render();
+                let state = self.state.as_mut().unwrap();
+                state.resize(physical_size);
+                state.cam_info.update_self(&self.camera, &physical_size);
+                state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[state.cam_info]));
+                let _ = state.render();
             },
-            WindowEvent::RedrawRequested => {
-                // Redraw the application.
-                //
-                // It's preferable for applications that do not render continuously to render in
-                // this event rather than in AboutToWait, since rendering in here allows
-                // the program to gracefully handle redraws requested by the OS.
-
-                // Draw.
-
-                // Queue a RedrawRequested event.
-                //
-                // You only need to call this if you've determined that you need to redraw in
-                // applications which do not always need to. Applications that redraw continuously
-                // can render here instead.
-                // let _ = self.state.as_mut().unwrap().render();
-            },
+            WindowEvent::RedrawRequested => {},
             WindowEvent::KeyboardInput { event: KeyEvent{
                 state: ElementState::Pressed,
                 physical_key: PhysicalKey::Code(KeyCode::KeyQ) | PhysicalKey::Code(KeyCode::Escape),
@@ -424,28 +449,28 @@ impl<'a> ApplicationHandler for App<'a> {
                 state: ElementState::Pressed,
                 ..
             } => {
-                    self.mouse_state[0] = true;
+                    self.movements[0] = true;
             },
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
                 state: ElementState::Released,
                 ..
             } => {
-                    self.mouse_state[0] = false;
+                    self.movements[0] = false;
             },
             WindowEvent::MouseInput {
                 button: MouseButton::Middle,
                 state: ElementState::Pressed,
                 ..
             } => {
-                    self.mouse_state[1] = true;
+                    self.movements[1] = true;
             },
             WindowEvent::MouseInput {
                 button: MouseButton::Middle,
                 state: ElementState::Released,
                 ..
             } => {
-                    self.mouse_state[1] = false;
+                    self.movements[1] = false;
             },
             WindowEvent::CursorMoved {position, .. } => {
                 // let size = self.state.as_ref().unwrap().size;
@@ -454,28 +479,44 @@ impl<'a> ApplicationHandler for App<'a> {
                 //     1.0 - position.y as f32 / size.height as f32 * 2.0,
                 // ];
                 // self.state.as_ref().unwrap().queue.write_buffer(&self.state.as_ref().unwrap().mouse_uniform, 0, bytemuck::cast_slice(&mouse_pos));
-                if self.mouse_state[0] || self.mouse_state[1] {
+                if self.movements[0] || self.movements[1] {
                     let x_diff = self.last_mouse_pos.x - position.x;
                     let y_diff = self.last_mouse_pos.y - position.y;
                     let state = self.state.as_mut().unwrap();
                     if x_diff > 0. {
-                        state.camera.movement(ray::Direction::Left, &self.mouse_state[0]);
+                        self.camera.movement(ray::Direction::Left, &self.movements[0]);
                     }
                     else if x_diff < 0. {
-                        state.camera.movement(ray::Direction::Right, &self.mouse_state[0]);
+                        self.camera.movement(ray::Direction::Right, &self.movements[0]);
                     }
                     if y_diff > 0. {
-                        state.camera.movement(ray::Direction::Up, &self.mouse_state[0]);
+                        self.camera.movement(ray::Direction::Up, &self.movements[0]);
                     }
                     else if y_diff < 0. {
-                        state.camera.movement(ray::Direction::Down, &self.mouse_state[0]);
+                        self.camera.movement(ray::Direction::Down, &self.movements[0]);
                     }
-                    state.cam_info.update_self(&state.camera, &state.size);
+                    state.cam_info.update_self(&self.camera, &state.size);
                     state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[state.cam_info]));
                     let _ = state.render();
                 }
                 self.last_mouse_pos = position;
             },
+            WindowEvent::MouseWheel{
+                delta: MouseScrollDelta::LineDelta(_x, y), .. 
+            } =>{
+                let state = self.state.as_mut().unwrap();
+                if y > 0. {
+                    let forward = (&self.camera.focus - &self.camera.position).normalize();
+                    self.camera.position += forward * 1.01;
+                }
+                else{
+                    let forward = (&self.camera.focus - &self.camera.position).normalize();
+                    self.camera.position -= forward * 0.99;
+                }
+                state.cam_info.update_self(&self.camera, &state.size);
+                state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[state.cam_info]));
+                let _ = state.render();
+            }
             WindowEvent::CursorLeft { .. } => {
                 let mouse_pos: [f32; 2] = [
                     2.,
@@ -492,7 +533,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 },
                 ..
             } => {
-                self.ctrl_state = true;
+                self.movements[0] = true;
             },
             WindowEvent::KeyboardInput {
                 event: KeyEvent { 
@@ -502,7 +543,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 },
                 ..
             } => {
-                self.ctrl_state = false;
+                self.movements[0] = false;
             },
             WindowEvent::KeyboardInput {
                 event: KeyEvent { 
@@ -513,8 +554,8 @@ impl<'a> ApplicationHandler for App<'a> {
             } => {
                 {
                     let state = self.state.as_mut().unwrap();
-                    state.camera.movement(ray::Direction::Forward, &self.ctrl_state);
-                    state.cam_info.update_self(&state.camera, &state.size);
+                    self.camera.movement(ray::Direction::Forward, &self.movements[0]);
+                    state.cam_info.update_self(&self.camera, &state.size);
                 }
                 let state = self.state.as_ref().unwrap();
                 state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[self.state.as_ref().unwrap().cam_info]));
@@ -529,8 +570,8 @@ impl<'a> ApplicationHandler for App<'a> {
             } => {
                 {
                     let state = self.state.as_mut().unwrap();
-                    state.camera.movement(ray::Direction::Backward, &self.ctrl_state);
-                    state.cam_info.update_self(&state.camera, &state.size);
+                    self.camera.movement(ray::Direction::Backward, &self.movements[0]);
+                    state.cam_info.update_self(&self.camera, &state.size);
                 }
                 let state = self.state.as_ref().unwrap();
                 state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[self.state.as_ref().unwrap().cam_info]));
@@ -545,8 +586,8 @@ impl<'a> ApplicationHandler for App<'a> {
             } => {
                 {
                     let state = self.state.as_mut().unwrap();
-                    state.camera.movement(ray::Direction::Right, &self.ctrl_state);
-                    state.cam_info.update_self(&state.camera, &state.size);
+                    self.camera.movement(ray::Direction::Right, &self.movements[0]);
+                    state.cam_info.update_self(&self.camera, &state.size);
                 }
                 let state = self.state.as_ref().unwrap();
                 state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[self.state.as_ref().unwrap().cam_info]));
@@ -561,8 +602,8 @@ impl<'a> ApplicationHandler for App<'a> {
             } => {
                 {
                     let state = self.state.as_mut().unwrap();
-                    state.camera.movement(ray::Direction::Left, &self.ctrl_state);
-                    state.cam_info.update_self(&state.camera, &state.size);
+                    self.camera.movement(ray::Direction::Left, &self.movements[0]);
+                    state.cam_info.update_self(&self.camera, &state.size);
                 }
                 let state = self.state.as_ref().unwrap();
                 state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[self.state.as_ref().unwrap().cam_info]));
@@ -577,8 +618,8 @@ impl<'a> ApplicationHandler for App<'a> {
             } => {
                 {
                     let state = self.state.as_mut().unwrap();
-                    state.camera.movement(ray::Direction::Up, &self.ctrl_state);
-                    state.cam_info.update_self(&state.camera, &state.size);
+                    self.camera.movement(ray::Direction::Up, &self.movements[0]);
+                    state.cam_info.update_self(&self.camera, &state.size);
                 }
                 let state = self.state.as_ref().unwrap();
                 state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[self.state.as_ref().unwrap().cam_info]));
@@ -593,8 +634,8 @@ impl<'a> ApplicationHandler for App<'a> {
             } => {
                 {
                     let state = self.state.as_mut().unwrap();
-                    state.camera.movement(ray::Direction::Down, &self.ctrl_state);
-                    state.cam_info.update_self(&state.camera, &state.size);
+                    self.camera.movement(ray::Direction::Down, &self.movements[0]);
+                    state.cam_info.update_self(&self.camera, &state.size);
                 }
                 let state = self.state.as_ref().unwrap();
                 state.queue.write_buffer(&state.cam_info_buffer, 0, bytemuck::cast_slice(&[self.state.as_ref().unwrap().cam_info]));
@@ -616,5 +657,7 @@ fn main() {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = App::default();
+    app.camera.position.v[2] = -18.;
+    app.camera.near = 0.01;
     let _ = event_loop.run_app(&mut app);
 }
