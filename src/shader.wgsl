@@ -22,6 +22,11 @@ struct CamInfos {
     //[x[2], y[0], y[1], y[2]]
 }
 
+struct Light{
+    position: vec3<f32>,
+    is_valid: u32,
+}
+
 
 struct Ray {
     origin: vec3<f32>,
@@ -47,9 +52,13 @@ struct HitResult {
 var<uniform> uniforms: Uniforms;
 
 @group(1) @binding(0)
-var<uniform> camInfos: CamInfos;
+var<uniform> cams: CamInfos;
 @group(1) @binding(1)
 var<uniform> spheres: array<Sphere, 200>;
+@group(1) @binding(2)
+var<uniform> lights: array<Light, 200>;
+@group(1) @binding(3)
+var<uniform> light_count: u32;
 
 @vertex
 fn vs_main(
@@ -69,12 +78,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var j = 1. - (in.vert_pos.y);
 
     // Extract values from camInfos
-    let cam_pos = vec3<f32>(camInfos.cam_info[0].x, camInfos.cam_info[0].y, camInfos.cam_info[0].z);
-    let view_port_center = vec3<f32>(camInfos.cam_info[0].w, camInfos.cam_info[1].x, camInfos.cam_info[1].y);
-    let half_width = camInfos.cam_info[2].x;
-    let half_height = camInfos.cam_info[2].y;
-    let x = vec3<f32>(camInfos.cam_info[2].z, camInfos.cam_info[2].w, camInfos.cam_info[3].x);
-    let y = vec3<f32>(camInfos.cam_info[3].y, camInfos.cam_info[3].z, camInfos.cam_info[3].w);
+    let cam_pos = vec3<f32>(cams.cam_info[0].x, cams.cam_info[0].y, cams.cam_info[0].z);
+    let view_port_center = vec3<f32>(cams.cam_info[0].w, cams.cam_info[1].x, cams.cam_info[1].y);
+    let half_width = cams.cam_info[2].x;
+    let half_height = cams.cam_info[2].y;
+    let x = vec3<f32>(cams.cam_info[2].z, cams.cam_info[2].w, cams.cam_info[3].x);
+    let y = vec3<f32>(cams.cam_info[3].y, cams.cam_info[3].z, cams.cam_info[3].w);
 
     // Convert i and j into screen space (-half_width to half_width)
     let u = (i - 1.) * half_width;
@@ -136,10 +145,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let hit_point = ray_at(ray, closest_hit.distance);
         let normal = closest_hit.normal;
 
-        // // Calculate shading based on the normal
-        let light_dir = normalize(vec3<f32>(1.0, 1., 0.));
-        let diffuse = max(dot(normal, light_dir), 0.0);
-
+        var diffuse = vec3<f32>(0., 0., 0.);
+        for(var k = 0u; k < light_count; k++) {
+            let light = lights[k];
+            if (light.is_valid == 1){
+                let light_dir = normalize(light.position);
+                let max_value = max(dot(normal, light_dir), 0.);
+                diffuse += vec3<f32>(max_value);
+            }
+            else{
+                continue;
+            }
+        }
         let sphere_color = hit_sphere.color.rgb;
         final_color += vec4<f32>(sphere_color * diffuse * attenuation, 0.0);
         // final_color = hit_sphere.color;
@@ -149,7 +166,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         ray.direction = reflect(ray.direction, normal);
 
         ray.inv = 1.0 / ray.direction;
-        attenuation *= 0.5;
+        attenuation *= 0.7;
 
     }
 

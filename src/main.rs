@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use utils::generate_random_id;
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -14,7 +13,7 @@ pub mod vector;
 pub mod utils;
 
 use crate::ray::Camera;
-use crate::utils::Sphere;
+use crate::utils::{Sphere, Vertex, CamInfo, Light, LightCount};
 
 const VERTICES: &[Vertex] = &[
     Vertex { position: [-1.0, -1.0, 0.0]}, // Bottom-left
@@ -59,63 +58,32 @@ const SPHERES: &[Sphere] = &[
     }
 ];
 
-
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-}
-
-impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
-
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
-        }
-    }
-}
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::NoUninit)]
-struct CamInfo {
-    cam_info: [[f32; 4]; 4],
-    //[cam_pos[0], cam_pos[1], cam_pos[2], view_port_center[0]]
-    //[view_port_center[1], view_port_center[2], pixel_width, pixel_height]
-    //[half_width, half_height, x[0], x[1]]
-    //[x[2], y[0], y[1], y[2]]
-}
-
-impl CamInfo {
-    fn update_self(&mut self, camera: &Camera, size: &PhysicalSize<u32>){
-        
-        let aspect_ratio = size.width as f32 / size.height as f32;
-        self.cam_info[0][0] = camera.position.v[0];
-        self.cam_info[0][1] = camera.position.v[1];
-        self.cam_info[0][2] = camera.position.v[2];
-        self.cam_info[2][1] = (camera.view_angle / (2. * camera.zoom)).tan() * camera.near;
-        self.cam_info[2][0] = aspect_ratio * self.cam_info[2][1];
-        let z = (&camera.focus - &camera.position).normalize();
-        let x = camera.up.cross(&z).normalize();
-        self.cam_info[2][2] = x.v[0];
-        self.cam_info[2][3] = x.v[1];
-        self.cam_info[3][0] = x.v[2];
-        let y = z.cross(&x).normalize();
-        self.cam_info[3][1] = y.v[0];
-        self.cam_info[3][2] = y.v[1];
-        self.cam_info[3][3] = y.v[2];
-        
-        let view_port_center = &camera.position + z * camera.near;
-        self.cam_info[0][3] = view_port_center.v[0];
-        self.cam_info[1][0] = view_port_center.v[1];
-        self.cam_info[1][1] = view_port_center.v[2];
-    }
-}
+const LIGHTS: &[Light] = &[
+    Light{
+        position: [-10., -10., 0.],
+        is_valid: 1,
+    },
+    // Light{
+    //     position: [0., 10., 0.],
+    //     is_valid: 1,
+    // },
+    // Light{
+    //     position: [0., 0., 10.],
+    //     is_valid: 1,
+    // },
+    // Light{
+    //     position: [-10., 0., 0.],
+    //     is_valid: 1,
+    // },
+    // Light{
+    //     position: [0., -10., 0.],
+    //     is_valid: 1,
+    // },
+    // Light{
+    //     position: [0., 0., -10.],
+    //     is_valid: 1,
+    // }
+];
 
 struct State<'a>{
     surface: wgpu::Surface<'a>,
@@ -230,6 +198,18 @@ impl<'a> State<'a>{
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let lights_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Light Uniform Buffer"),
+            size: (std::mem::size_of::<Light>() * 200) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let num_lights_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Light Uniform Buffer"),
+            size: std::mem::size_of::<LightCount>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let cam_info_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("CamInfo Group Layout"),
             entries: &[
@@ -252,7 +232,27 @@ impl<'a> State<'a>{
                         min_binding_size: None,
                     },
                     count: None,
-                }
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let cam_info_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -266,6 +266,14 @@ impl<'a> State<'a>{
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: spheres_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: lights_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: num_lights_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -333,9 +341,16 @@ impl<'a> State<'a>{
             }
         );
         let num_indices = INDICES.len() as u32;
-        let mut sphere_data = [Sphere::default(); 200 ];
+        let mut sphere_data = [Sphere::default(); 200];
         sphere_data[..SPHERES.len()].copy_from_slice(SPHERES);
+        let mut lights_data = [Light::default(); 200];
+        lights_data[..LIGHTS.len()].copy_from_slice(LIGHTS);
         queue.write_buffer(&spheres_buffer, 0, bytemuck::cast_slice(&sphere_data));
+        queue.write_buffer(&lights_buffer, 0, bytemuck::cast_slice(&lights_data));
+        let lights_count = LightCount{
+            count: LIGHTS.len() as u32,
+        };
+        queue.write_buffer(&num_lights_buffer, 0, bytemuck::cast_slice(&[lights_count]));
         Self {
             surface,
             device,

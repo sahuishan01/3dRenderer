@@ -7,6 +7,8 @@
 use std::mem;
 use bytemuck::NoUninit;
 use rand::Rng;
+use crate::ray::Camera;
+use winit::dpi::PhysicalSize;
 
 pub fn struct_to_bytes<T>(data: &T) -> &[u8] {
     unsafe {
@@ -43,6 +45,87 @@ pub fn generate_random_id() -> u32 {
     let mut rng = rand::thread_rng();
     rng.gen()
 }
+
+
+
+#[repr(C)]
+#[derive(Copy, Clone, NoUninit)]
+pub struct LightCount {
+    pub count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, NoUninit)]
+pub struct Light{
+    pub position: [f32; 3],
+    pub is_valid: u32,
+}
+
+impl Default for Light {
+    fn default() -> Self {
+        Self {
+            position: [0., 0., 0.],
+            is_valid: 0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Vertex {
+    pub position: [f32; 3],
+}
+
+impl Vertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 2] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::NoUninit)]
+pub struct CamInfo {
+    pub cam_info: [[f32; 4]; 4],
+    //[cam_pos[0], cam_pos[1], cam_pos[2], view_port_center[0]]
+    //[view_port_center[1], view_port_center[2], pixel_width, pixel_height]
+    //[half_width, half_height, x[0], x[1]]
+    //[x[2], y[0], y[1], y[2]]
+}
+
+impl CamInfo {
+    pub fn update_self(&mut self, camera: &Camera, size: &PhysicalSize<u32>){
+        
+        let aspect_ratio = size.width as f32 / size.height as f32;
+        self.cam_info[0][0] = camera.position.v[0];
+        self.cam_info[0][1] = camera.position.v[1];
+        self.cam_info[0][2] = camera.position.v[2];
+        self.cam_info[2][1] = (camera.view_angle / (2. * camera.zoom)).tan() * camera.near;
+        self.cam_info[2][0] = aspect_ratio * self.cam_info[2][1];
+        let z = (&camera.focus - &camera.position).normalize();
+        let x = camera.up.cross(&z).normalize();
+        self.cam_info[2][2] = x.v[0];
+        self.cam_info[2][3] = x.v[1];
+        self.cam_info[3][0] = x.v[2];
+        let y = z.cross(&x).normalize();
+        self.cam_info[3][1] = y.v[0];
+        self.cam_info[3][2] = y.v[1];
+        self.cam_info[3][3] = y.v[2];
+        
+        let view_port_center = &camera.position + z * camera.near;
+        self.cam_info[0][3] = view_port_center.v[0];
+        self.cam_info[1][0] = view_port_center.v[1];
+        self.cam_info[1][1] = view_port_center.v[2];
+    }
+}
+
 // pub fn hitSphere(r: &Ray, sphere_radius: f32) -> f32 {
 //     let a = r.direction.dot(&r.direction);
 //     let b = 2.0 * r.origin.dot(&r.direction);
