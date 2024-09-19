@@ -10,10 +10,6 @@ struct Sphere{
     material: u32,
 }
 
-struct Uniforms {
-    mouse_pos: vec2<f32>,
-}
-
 struct CamInfos {
     cam_info: mat4x4<f32>,
     //[cam_pos[0], cam_pos[1], cam_pos[2], view_port_center[0]]
@@ -49,15 +45,16 @@ struct HitResult {
 }
 
 @group(0) @binding(0)
-var<uniform> uniforms: Uniforms;
+var<uniform> cams: CamInfos;
 
 @group(1) @binding(0)
-var<uniform> cams: CamInfos;
+var<storage, read_write> spheres: array<Sphere>;
 @group(1) @binding(1)
-var<uniform> spheres: array<Sphere, 200>;
-@group(1) @binding(2)
-var<uniform> lights: array<Light, 200>;
-@group(1) @binding(3)
+var<uniform> sphere_count: u32;
+
+@group(2) @binding(0)
+var<storage, read_write> lights: array<Light>;
+@group(2) @binding(1)
 var<uniform> light_count: u32;
 
 @vertex
@@ -135,8 +132,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 hit_sphere = sphere;
                 hit_indices[current_hit_index] = l;
                 current_hit_index += 1u;
-            }
-        }
+           }
+       }
 
         if (closest_hit.distance == MAX_FLOAT || hit_sphere.material == 0) {
             break;
@@ -160,7 +157,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let sphere_color = hit_sphere.color.rgb;
         final_color += vec4<f32>(sphere_color * diffuse * attenuation, 0.0);
         // final_color = hit_sphere.color;
-
         // Update ray for next bounce
         ray.origin = hit_point + closest_hit.normal*0.001;
         ray.direction = reflect(ray.direction, normal);
