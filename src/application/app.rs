@@ -47,7 +47,7 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                         padding_: [1., 1., 1.],
                     },
                     Sphere {
-                        center: [15., 0., 5.],
+                        center: [10., 0., 5.],
                         radius: 2.,
                         color: [1., 1., 1., 1.],
                         material: 1,
