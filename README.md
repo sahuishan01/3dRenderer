@@ -18,4 +18,4 @@ cargo watch -c -w src -x run
 
 
 ### Sample Image
-![image](assets/sample.png?raw=True)
+![image](assets/sample.png?raw=True

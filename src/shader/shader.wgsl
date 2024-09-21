@@ -106,7 +106,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     for (var bounce = 0u; bounce < 5u; bounce++) {
         var closest_hit = HitResult(MAX_FLOAT, vec3<f32>(0.0));
         var hit_sphere: Sphere;
-        for (var l = 0u; l < 200u; l++) {
+        for (var l = 0u; l < sphere_count; l++) {
             let sphere = spheres[l];
             if (sphere.radius <= 0.0) {
                 continue;
@@ -135,7 +135,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
            }
        }
 
-        if (closest_hit.distance == MAX_FLOAT || hit_sphere.material == 0) {
+        if (closest_hit.distance == MAX_FLOAT ) {
             break;
         }
 
@@ -146,7 +146,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         for(var k = 0u; k < light_count; k++) {
             let light = lights[k];
             if (light.is_valid == 1){
-                let light_dir = normalize(light.position);
+                let light_dir = normalize(light.position - hit_point);
                 let max_value = max(dot(normal, light_dir), 0.);
                 diffuse += vec3<f32>(max_value);
             }
@@ -154,12 +154,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 continue;
             }
         }
+        var ambient = vec3<f32>(0.1, 0.1, 0.1);
         let sphere_color = hit_sphere.color.rgb;
-        final_color += vec4<f32>(sphere_color * diffuse * attenuation, 0.0);
+        final_color += vec4<f32>(sphere_color * (diffuse * attenuation + ambient), 0.0);
         // final_color = hit_sphere.color;
         // Update ray for next bounce
         ray.origin = hit_point + closest_hit.normal*0.001;
-        ray.direction = reflect(ray.direction, normal);
+        if (hit_sphere.material == 0){
+          break;
+        }
+        else if (hit_sphere.material == 1){
+          ray.direction = reflect(ray.direction, normal);
+        }
+        else{
+          ray.direction = refract_ray(ray.direction, normal, 1.0, 1.5);
+        }
 
         ray.inv = 1.0 / ray.direction;
         attenuation *= 0.7;
@@ -200,4 +209,18 @@ fn hit_sphere(r: Ray, sphere_center: vec3<f32>, sphere_radius: f32) -> HitResult
     let normal = normalize(hit_point - sphere_center);
 
     return HitResult(t, normal);
+}
+fn refract_ray(incident: vec3<f32>, normal: vec3<f32>, n1: f32, n2: f32) -> vec3<f32> {
+    let n = n1 / n2;
+    let cos_i = -dot(normal, incident);
+    let sin_t2 = n * n * (1.0 - cos_i * cos_i);
+    
+    // Check for total internal reflection
+    if (sin_t2 > 1.0) {
+        // Total internal reflection occurs
+        return reflect(incident, normal);
+    }
+    
+    let cos_t = sqrt(1.0 - sin_t2);
+    return n * incident + (n * cos_i - cos_t) * normal;
 }

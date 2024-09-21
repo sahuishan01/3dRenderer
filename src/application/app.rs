@@ -1,7 +1,8 @@
+use num_traits::Float;
 use winit::{event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent}, keyboard::{KeyCode, PhysicalKey}, window::Window};
 
 use crate::{application::state::State, rendering::{camera::Direction, light::Light, sphere::Sphere}};
-
+use rand::Rng;
 
 
 #[derive(Default)]
@@ -37,38 +38,31 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
             ];
             
             state.light_manager.add_lights(lights, &state.device, &state.queue);
-            
-            let spheres = vec![
-                    Sphere {
-                        center: [5., 0., 5.],
-                        radius: 2.,
-                        color: [1., 1., 0., 1.],
-                        material: 1,
-                        padding_: [1., 1., 1.],
-                    },
-                    Sphere {
-                        center: [10., 0., 5.],
-                        radius: 2.,
-                        color: [1., 1., 1., 1.],
-                        material: 1,
-                        padding_: [1., 1., 1.],
-                    },
-                    Sphere {
-                        center: [5., 0., 0.],
-                        radius: 2.,
-                        color: [1., 0., 1., 1.],
-                        material: 1,
-                        padding_: [1., 1., 1.],
-                    },
-                    Sphere {
-                        center: [0., 0., 0.],
-                        radius: 2.,
-                        color: [1., 0.46, 0.09, 1.],
-                        material: 1,
-                        padding_: [1., 1., 1.],
-                    },
-            ];
-
+            let mut rng = rand::thread_rng();
+            let mut spheres: Vec<Sphere> = Vec::new();
+            for _ in 0..50 {
+                let sphere = Sphere {
+                    center: [
+                        rng.gen_range(-10.0..10.0),  // Random x position between -1000 and
+                                                         // 1000
+                        rng.gen_range(-10.0..10.0),  // Random y position between -100000 and
+                                                       // 1000
+                        rng.gen_range(-10.0..10.0),  // Random z position between -1000 and
+                                                         // 1000
+                    ],
+                    radius: rng.gen_range(0.5..2.0), // Random radius between 0.5 and 5
+                    color: [
+                        rng.gen_range(0.0..1.0),  // Random red value between 0 and 1
+                        rng.gen_range(0.0..1.0),  // Random green value between 0 and 1
+                        rng.gen_range(0.0..1.0),  // Random blue value between 0 and 1
+                        1.0,                      // Alpha (opacity) is fixed at 1.0
+                    ],
+                    material: rng.gen_range(0.0..2.0).round() as u32,                 // Material is fixed
+                    padding_: [1.0, 1.0, 1.0],   // Padding is fixed
+                };
+        
+                spheres.push(sphere);
+            } 
             state.sphere_manager.add_spheres(spheres, &state.device, &state.queue);
         }
     }
