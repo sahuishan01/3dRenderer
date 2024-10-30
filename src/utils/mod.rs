@@ -1,4 +1,6 @@
 pub mod vector;
+pub mod mesh;
+pub mod bvh;
 
 use std::mem;
 use rand::Rng;
@@ -43,3 +45,51 @@ impl Vertex {
 pub struct EntityCount{
     pub count: u32,
 } 
+
+ use std::collections::BinaryHeap;
+ use std::cmp::Ordering;
+
+
+ // Wrapper struct for our elements
+ #[derive(PartialEq, Eq)]
+ struct MinHeapElement<T: Ord>(T);
+ // Implement Ord and PartialOrd to reverse the ordering
+ impl<T: Ord> Ord for MinHeapElement<T> {
+     fn cmp(&self, other: &Self) -> Ordering {
+         other.0.cmp(&self.0)
+     }
+ }
+ impl<T: Ord> PartialOrd for MinHeapElement<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+         Some(self.cmp(other))
+     }
+ }
+ // MinHeap struct
+ pub struct MinHeap<T: Ord> {
+     heap: BinaryHeap<MinHeapElement<T>>,
+ }
+
+ impl<T: Ord> MinHeap<T> {
+     pub fn new() -> Self {
+         MinHeap { heap: BinaryHeap::new() }
+     }
+     pub fn push(&mut self, item: T) {
+         self.heap.push(MinHeapElement(item));
+     }
+     pub fn pop(&mut self) -> Option<T> {
+         self.heap.pop().map(|MinHeapElement(item)| item)
+     }
+
+     pub fn peek(&self) -> Option<&T> {
+         self.heap.peek().map(|MinHeapElement(item)| item)
+     }
+     pub fn len(&self) -> usize {
+         self.heap.len()
+     }
+
+     pub fn is_empty(&self) -> bool {
+         self.heap.is_empty()
+     }
+ }
+
+

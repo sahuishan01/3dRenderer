@@ -12,12 +12,12 @@ impl<T> ConvertTo<T> for T {
     }
 }
 
-fn convert_to<T, U>(value: T) -> U
-where
-    T: Into<U>,
-{
-    value.into()
-}
+// fn convert_to<T, U>(value: T) -> U
+// where
+//     T: Into<U>,
+// {
+//     value.into()
+// }
 
 #[derive(Debug, Clone)]
 pub struct Vec3<T> {

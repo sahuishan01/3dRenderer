@@ -7,8 +7,9 @@ pub struct Sphere {
     pub center: [f32; 3],
     pub radius: f32,
     pub color: [f32; 4],
-    pub material: u32,
-    pub padding_: [f32; 3]
+    pub material: f32,
+    pub refractivity: f32,
+    pub padding_: [f32; 2]
 }
 
 impl Default for Sphere {
@@ -17,8 +18,9 @@ impl Default for Sphere {
             center: [0., 0., 0.],
             radius: 0.,
             color: [1.0, 1.0, 0., 1.0],
-            material: 0,
-            padding_: [0., 0., 0.]
+            material: 0.0,
+            refractivity: 1.0,
+            padding_: [0., 0.]
         }
     }
 }

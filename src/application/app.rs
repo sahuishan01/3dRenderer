@@ -1,4 +1,3 @@
-use num_traits::Float;
 use winit::{event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent}, keyboard::{KeyCode, PhysicalKey}, window::Window};
 
 use crate::{application::state::State, rendering::{camera::Direction, light::Light, sphere::Sphere}};
@@ -28,26 +27,29 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
 
             let lights = vec![
                 Light {
-                    position: [-10., -10., -10.],
+                    position: [-100., -100., -100.],
                     is_valid: 1,
+                    ..Default::default()
                 },
                 Light {
-                    position: [10., 0., 10.],
+                    position: [100., 0., 100.],
                     is_valid: 1,
+                    ..Default::default()
                 }
             ];
             
             state.light_manager.add_lights(lights, &state.device, &state.queue);
             let mut rng = rand::thread_rng();
             let mut spheres: Vec<Sphere> = Vec::new();
-            for _ in 0..50 {
+            let range_val = 5_f32;
+            for _ in 0..5 {
                 let sphere = Sphere {
                     center: [
-                        rng.gen_range(-10.0..10.0),  // Random x position between -1000 and
+                        rng.gen_range(-range_val..range_val),  // Random x position between -1000 and
                                                          // 1000
-                        rng.gen_range(-10.0..10.0),  // Random y position between -100000 and
+                        rng.gen_range(-range_val..range_val),  // Random y position between -100000 and
                                                        // 1000
-                        rng.gen_range(-10.0..10.0),  // Random z position between -1000 and
+                        rng.gen_range(-range_val..range_val),  // Random z position between -1000 and
                                                          // 1000
                     ],
                     radius: rng.gen_range(0.5..2.0), // Random radius between 0.5 and 5
@@ -57,8 +59,9 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                         rng.gen_range(0.0..1.0),  // Random blue value between 0 and 1
                         1.0,                      // Alpha (opacity) is fixed at 1.0
                     ],
-                    material: rng.gen_range(0.0..2.0).round() as u32,                 // Material is fixed
-                    padding_: [1.0, 1.0, 1.0],   // Padding is fixed
+                    refractivity: rng.gen_range(1.0..3.0),
+                    material: rng.gen_range(0.0..1.0),                 // Material is fixed
+                    ..Default::default()   // Padding is fixed
                 };
         
                 spheres.push(sphere);

@@ -6,6 +6,9 @@ use crate::utils::EntityCount;
 pub struct Light{
     pub position: [f32; 3],
     pub is_valid: u32,
+    pub color: [f32; 4],
+    pub intensity: f32,
+    pub _padding: [f32; 3],
 }
 
 impl Default for Light {
@@ -13,6 +16,9 @@ impl Default for Light {
         Self {
             position: [0., 0., 0.],
             is_valid: 0,
+            color: [1., 1., 1., 1.],
+            intensity: 10.,
+            _padding: [0., 0., 0.]
         }
     }
 }

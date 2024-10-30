@@ -1,13 +1,11 @@
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use std::io::{self,Write, Read, Seek, SeekFrom};
 use std::collections::hash_map::DefaultHasher;
 use std::path::PathBuf;
 use rayon::{max_num_threads, prelude::*};
 use std::fs::File;
-use crate::Vec3;
 
-impl Hash for Vec3<f32>{
     // pub fn hash<H: Hasher>(&self, state: &mut H) {
     //     let mut hasher = DefaultHasher::new();
     //
@@ -23,24 +21,22 @@ impl Hash for Vec3<f32>{
     //     hasher.write_u32(self.v[2].to_bits());
     //     state.write_u64(hasher.finish());
     // }
-    fn hash<H: Hasher>(&self, state: &mut H) {
+pub fn hash<H: Hasher>(data: [f32; 3], state: &mut H) {
 
-        let bytes_x = self.v[0].to_le_bytes();
-        let bytes_y = self.v[1].to_le_bytes();
-        let bytes_z = self.v[2].to_le_bytes();
-
-        // Concatenate the byte representations of x, y, and z
-        let combined_bytes: Vec<u8> = [&bytes_x, &bytes_y, &bytes_z]
-            .iter()
-            .flat_map(|&array| array.iter().cloned())
-            .collect();
-
-        state.write(&combined_bytes);
-    }
+    let bytes_x = data[0].to_le_bytes();
+    let bytes_y = data[1].to_le_bytes();
+    let bytes_z = data[2].to_le_bytes();
+    // Concatenate the byte representations of x, y, and z
+    let combined_bytes: Vec<u8> = [&bytes_x, &bytes_y, &bytes_z]
+        .iter()
+        .flat_map(|&array| array.iter().cloned())
+        .collect();
+    state.write(&combined_bytes);
 }
-pub fn hash_point(p: &Vec3<f32>) -> u64 {
+
+pub fn hash_point(p: &[f32; 3]) -> u64 {
     let mut hasher = DefaultHasher::new();
-    p.hash(&mut hasher);
+    hash(*p, &mut hasher);
     hasher.finish()
 }
 
@@ -50,69 +46,49 @@ pub struct Face{
     pub v2: u32,
     pub v3: u32,
 }
-impl Face{
-    pub fn new() -> Self{
-        Self{
-            v1: u32::MAX,
-            v2: u32::MAX,
-            v3: u32::MAX
-        }
-    }
-}
-
 
 #[repr(C, packed)]
-pub struct Triangle{
-    pub normal: Vec3<f32>,
-    pub vertices: [Vec3<f32>; 3],
-    pub padding: [u8; 2],
-}
-impl Triangle{
-    pub fn new() -> Self {
-        Self{
-            normal: Vec3::new(0., 0., 0.),
-            vertices: [Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.)],
-            padding: [0, 0],
-        }
-    }
-}
-
-
 #[derive(Clone)]
-pub struct Triangle2{
-    pub normal: Vec3<f32>,
-    pub vertices: [Vec3<f32>; 3],
-    pub padding: [u8; 2],
+pub struct Triangle{
+    pub n: [f32; 3],
+    pub v1: [f32; 3], 
+    pub v2: [f32; 3],
+    pub v3: [f32; 3],
+    pub padding_: [u8; 2],
 }
 
-impl Triangle2{
-    pub fn new() -> Self {
-        Self{
-            normal: Vec3::new(0., 0., 0.),
-            vertices: [Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.), Vec3::new(0., 0., 0.)],
-            padding: [0, 0],
+impl Default for Triangle {
+    fn default() -> Self {
+        Self {
+            n: [0., 0., 0.],
+            v1: [0., 0., 0.],
+            v2: [0., 0., 0.],
+            v3: [0., 0., 0.],
+            padding_: [0, 0],
         }
     }
 }
 
 #[derive(Clone)]
 pub struct Mesh{
-    pub normals: Vec<Vec3<f32>>,
-    pub vertices: Vec<Vec3<f32>>,
-    pub faces: Vec<Face>,
+    pub normals: Vec<[f32; 3]>,
+    pub vertices: Vec<[f32; 3]>,
+    pub faces: Vec<[usize; 3]>,
     pub num_faces: u32,
     pub loaded: bool,
     pub processed: bool,
 }
 
 impl Mesh{
+
     pub fn new(num_faces: usize) -> Self {
-        let normals: Vec<Vec3<f32>> = vec![Vec3::new(0., 0., 0.); num_faces];
-        let vertices: Vec<Vec3<f32>> = vec![Vec3::new(0., 0., 0.); num_faces*3];
-        let faces: Vec<Face> = vec![Face::new(); num_faces];
+        let normals = vec![[0., 0., 0.]; num_faces];
+        let vertices = vec![[0., 0., 0.]; num_faces * 3];
+        let faces = vec![[0, 0, 0]; num_faces];
         let num_faces = num_faces as u32;
         Self {normals, vertices, faces, num_faces, loaded: false, processed: false}
     }
+
     pub fn e_new() -> Self {
         Self {
             normals: vec![],
@@ -122,9 +98,6 @@ impl Mesh{
             loaded: false,
             processed: false
         }
-    }
-    pub fn len(&self) -> usize {
-        self.faces.len()
     }
 
     pub fn write_stl_file(&self, file_path: &str) -> io::Result<()> {
@@ -139,17 +112,17 @@ impl Mesh{
             writeln!(
                 file,
                 "  facet normal {} {} {}",
-                normal.v[0], normal.v[1], normal.v[2]
+                normal[0], normal[1], normal[2]
             )?;
             writeln!(file, "    outer loop")?;
 
-            let v1 = &self.vertices[face.v1 as usize];
-            let v2 = &self.vertices[face.v2 as usize];
-            let v3 = &self.vertices[face.v3 as usize];
+            let v1 = &self.vertices[face[0]];
+            let v2 = &self.vertices[face[1]];
+            let v3 = &self.vertices[face[2]];
 
-            writeln!(file, "      vertex {} {} {}", v1.v[0], v1.v[1], v1.v[2])?;
-            writeln!(file, "      vertex {} {} {}", v2.v[0], v2.v[1], v2.v[2])?;
-            writeln!(file, "      vertex {} {} {}", v3.v[0], v3.v[1], v3.v[2])?;
+            writeln!(file, "      vertex {} {} {}", v1[0], v1[1], v1[2])?;
+            writeln!(file, "      vertex {} {} {}", v2[0], v2[1], v2[2])?;
+            writeln!(file, "      vertex {} {} {}", v3[0], v3[1], v3[2])?;
 
             writeln!(file, "    endloop")?;
             writeln!(file, "  endfacet")?;
@@ -174,9 +147,10 @@ pub fn load_mesh(path: &PathBuf) -> Result<Mesh, String>{
     let mut num_triangles: u32 = 0;
     f.read_exact(unsafe { std::mem::transmute::<&mut u32, &mut [u8; 4]>(&mut num_triangles) }).unwrap();
 
-    let data_start = f.seek(SeekFrom::Current(0)).unwrap();
+    let data_start = f.stream_position().unwrap();
     let data_end = f.seek(SeekFrom::End(0)).unwrap();
     let len_data = data_end - data_start;
+    println!("{:?}", std::mem::size_of::<Triangle>());
     let expected_data_size = (std::mem::size_of::<Triangle>() as u64) * (num_triangles as u64);
 
     // println!("Triangle size is {:?}", std::mem::size_of::<Triangle>() as u64);
@@ -187,43 +161,39 @@ pub fn load_mesh(path: &PathBuf) -> Result<Mesh, String>{
     }
 
 
+    let mut mesh: Mesh = Mesh::new(num_triangles as usize);
     f.seek(SeekFrom::Start(data_start)).unwrap();
-    let mut triangles: Vec<Triangle> = Vec::with_capacity(num_triangles as usize);
-
+    
+    let mut triangles: Vec<Triangle> = vec![Triangle::default(); num_triangles as usize];
     unsafe {
-        triangles.set_len(num_triangles as usize);
         f.read_exact(std::slice::from_raw_parts_mut(triangles.as_mut_ptr() as *mut u8, expected_data_size as usize)).unwrap();
     }
-    let mut i = 0;
-    let mut f_count =  0;
-    let mut mesh: Mesh = Mesh::new(num_triangles as usize);
-    while i < triangles.len() {
-        mesh.normals[i] = Vec3::new(triangles[i].normal.v[0], triangles[i].normal.v[1], triangles[i].normal.v[2]);
-        mesh.vertices[i*3] = Vec3::new(triangles[i].vertices[0].v[0], triangles[i].vertices[0].v[1], triangles[i].vertices[0].v[2]);
-        mesh.vertices[i*3+1] = Vec3::new(triangles[i].vertices[1].v[0], triangles[i].vertices[1].v[1], triangles[i].vertices[1].v[2]);
-        mesh.vertices[i*3+2] = Vec3::new(triangles[i].vertices[2].v[0], triangles[i].vertices[2].v[1], triangles[i].vertices[2].v[2]);
-        mesh.faces[i] = Face{
-            v1: f_count,
-            v2: f_count + 1,
-            v3: f_count + 2,
-        };
-        f_count += 3;
-        i+=1;
-    }
-    // let mut mesh: Mesh = Mesh::e_new();
-    // while i < triangles.len(){
-    //     mesh.normals.push(triangles[i].normal);
-    //     mesh.vertices.extend_from_slice(&triangles[i].vertices);
-    //     mesh.faces.push(
-    //         Face{
-    //             v1: f_count,
-    //             v2: f_count + 1,
-    //             v3: f_count + 2,
-    //         }
-    //     );
-    //     f_count += 3;
-    //     i+=1;
-    // }
+
+    let chunk_size = (num_triangles as usize + max_num_threads() - 1) / max_num_threads();
+
+    let faces_chunks = mesh.faces.par_chunks_mut(chunk_size);
+    let vertices_chunks = mesh.vertices.par_chunks_mut(3 * chunk_size);
+    let normals_chunks = mesh.normals.par_chunks_mut(chunk_size);
+
+    // Zip the chunks to process them together
+    faces_chunks.zip(vertices_chunks).zip(normals_chunks)
+        .enumerate()
+        .for_each(|(chunk_idx, ((faces_chunk, vertices_chunk), normals_chunk))| {
+            let global_offset = chunk_idx * chunk_size;
+
+            // Calculate the actual end of the current chunk, ensuring it doesn't exceed num_triangles
+            let end_idx = (global_offset + chunk_size).min(num_triangles as usize);
+
+            for (local_idx, triangle) in triangles[global_offset..end_idx].iter().enumerate() {
+                let global_idx = global_offset + local_idx;
+
+                faces_chunk[local_idx] = [3 * global_idx, 3 * global_idx + 1, 3 * global_idx + 2];
+                vertices_chunk[3 * local_idx] = [triangle.v1[0], triangle.v1[1], triangle.v1[2]];
+                vertices_chunk[3 * local_idx + 1] = [triangle.v2[0], triangle.v2[1], triangle.v2[2]];
+                vertices_chunk[3 * local_idx + 2] = [triangle.v3[0], triangle.v3[1], triangle.v3[2]];
+                normals_chunk[local_idx] = [triangle.n[0], triangle.n[1], triangle.n[2]];
+            }
+        });
     mesh.loaded = true;
     Ok(mesh)
 
@@ -233,36 +203,35 @@ pub fn process_mesh(mesh: &Mesh) -> Result<Mesh, String>{
 
     let mut temp_mesh = Mesh::e_new();
     let mut point_map: HashMap<u64, usize> = HashMap::new();
-    for i in 0..mesh.faces.len(){
+    for i in 0..mesh.num_faces as usize {
         let face = &mesh.faces[i];
-        temp_mesh.normals.push(Vec3::new(mesh.normals[i].v[0], mesh.normals[i].v[1], mesh.normals[i].v[2]));
-        let mut f = Face::new();
-        let h1 = hash_point(&mesh.vertices[face.v1 as usize]);
-        let h2 = hash_point(&mesh.vertices[face.v2 as usize]);
-        let h3 = hash_point(&mesh.vertices[face.v3 as usize]);
-        if let Some(index) = point_map.get(&h1) {
-            f.v1 = index.clone() as u32;
+        let mut f: [usize; 3] = [0, 0, 0];
+        let h1 = hash_point(&mesh.vertices[face[0]]);
+        let h2 = hash_point(&mesh.vertices[face[1]]);
+        let h3 = hash_point(&mesh.vertices[face[2]]);
+        if let Some(index) = point_map.get(&h1){
+            f[0] = *index;
         }
-        else{
+        else {
             point_map.insert(h1, temp_mesh.vertices.len());
-            f.v1 = temp_mesh.vertices.len() as u32;
-            temp_mesh.vertices.push(Vec3::new(mesh.vertices[face.v1 as usize].v[0], mesh.vertices[face.v1 as usize].v[1], mesh.vertices[face.v1 as usize].v[2]));
+            f[0] = temp_mesh.vertices.len();
+            temp_mesh.vertices.push(mesh.vertices[face[0]]);
         }
         if let Some(index) = point_map.get(&h2) {
-            f.v2 = index.clone() as u32;
+            f[1] = *index;
         }
-        else{
+        else {
             point_map.insert(h2, temp_mesh.vertices.len());
-            f.v2 = temp_mesh.vertices.len() as u32;
-            temp_mesh.vertices.push(Vec3::new(mesh.vertices[face.v2 as usize].v[0], mesh.vertices[face.v2 as usize].v[1], mesh.vertices[face.v2 as usize].v[2]));
+            f[1] = temp_mesh.vertices.len();
+            temp_mesh.vertices.push(mesh.vertices[face[1]]);
         }
         if let Some(index) = point_map.get(&h3) {
-            f.v3 = index.clone() as u32;
+            f[2] = *index;
         }
-        else{
+        else {
             point_map.insert(h3, temp_mesh.vertices.len());
-            f.v3 = temp_mesh.vertices.len() as u32;
-            temp_mesh.vertices.push(Vec3::new(mesh.vertices[face.v3 as usize].v[0], mesh.vertices[face.v3 as usize].v[1], mesh.vertices[face.v3 as usize].v[2]));
+            f[2] = temp_mesh.vertices.len();
+            temp_mesh.vertices.push(mesh.vertices[face[2]]);
         }
         temp_mesh.faces.push(f);
     }
@@ -284,8 +253,8 @@ pub fn add_meshes(meshes: &mut Vec<(PathBuf, Mesh)>,  paths: Vec<PathBuf>) {
 
     // chunks for threads
     let chunk_size = (meshes.len() + max_num_threads() - 1) / max_num_threads();
-    meshes.par_chunks_mut(chunk_size).enumerate().skip(start_index).for_each(|(_chunk_idx, chunk)|{
-        for (_index, (path, mesh)) in chunk.iter_mut().enumerate(){
+    meshes.par_chunks_mut(chunk_size).skip(start_index).for_each(|chunk|{
+        for (path, mesh) in chunk.iter_mut(){
             // let global_index = chunk_idx * chunk_size + index + start_index;
             let mut result = match load_mesh(path) {
                 Ok(m) => {
@@ -400,7 +369,7 @@ pub fn process_meshes(meshes: &mut Vec<(PathBuf, Mesh)>, start_idx: usize){
 
 }
 
-pub fn sort_meshes_by_num_faces(meshes: &mut Vec<(PathBuf, Mesh)>){
+pub fn sort_meshes_by_num_faces(meshes: &mut [(PathBuf, Mesh)]){
     let swap_start = std::time::Instant::now();
     meshes.sort_by(|a,b| b.1.num_faces.cmp(&a.1.num_faces));
     let mut indices: Vec<Vec<usize>> = vec![Vec::new(); max_num_threads()];
@@ -411,7 +380,7 @@ pub fn sort_meshes_by_num_faces(meshes: &mut Vec<(PathBuf, Mesh)>){
         let mut j: usize = 0;
         let mut reverse = false;
         while j < chunk_size{
-            if reverse == false{
+            if !reverse {
                 indices[i].push(i + (j * max_num_threads()));
             }
             else{
@@ -442,4 +411,25 @@ pub fn sort_meshes_by_num_faces(meshes: &mut Vec<(PathBuf, Mesh)>){
     }
     meshes.swap_with_slice(&mut rearranged_meshes);
     println!("Swap time is: {} micro seconds", swap_start.elapsed().as_micros());
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{str::FromStr, time::Instant};
+
+    use crate::utils::bvh;
+
+    use super::*;
+
+    #[test]
+    fn mesh_loader_test(){
+        let path: PathBuf = PathBuf::from_str("../../STLS/Raw/A.stl").unwrap();
+        let start = Instant::now();
+        let mesh: Mesh = load_mesh(&path).unwrap();
+        println!("Mesh loading time: {:?} milliseconds", start.elapsed().as_millis());
+        let start = Instant::now();
+        let _res = bvh::create_bvh(&mesh, 10);
+        //let res = mesh.write_stl_file("../1.stl");
+        println!("BVH time: {:?} milliseconds", start.elapsed().as_millis());
+    }
 }
