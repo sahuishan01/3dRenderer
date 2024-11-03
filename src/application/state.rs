@@ -1,15 +1,3 @@
-use wgpu::util::DeviceExt;
-const VERTICES: &[crate::utils::Vertex] = &[
-            crate::utils::Vertex { position: [-1.0, -1.0, 0.0]}, // Bottom-left
-            crate::utils::Vertex { position: [1.0, -1.0, 0.0]},  // Bottom-right
-            crate::utils::Vertex { position: [-1.0, 1.0, 0.0]},  // Top-left
-            crate::utils::Vertex { position: [1.0, 1.0, 0.0]},   // Top-right
-        ];
-
-        const INDICES: &[u16] = &[
-            0, 1, 2,  // First triangle
-            1, 3, 2,  // Second triangle
-        ];
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -21,8 +9,6 @@ pub struct State<'a> {
     pub sphere_manager: crate::rendering::sphere::SphereManager,
     pub light_manager: crate::rendering::light::LightManager,
     pub render_pipeline: wgpu::RenderPipeline,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
 }
 
 
@@ -102,9 +88,7 @@ impl<'a> State<'a>{
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[
-                    crate::utils::Vertex::desc(),
-                ],
+                buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
 
@@ -143,21 +127,7 @@ impl<'a> State<'a>{
         });
         surface.configure(&device, &config);
         
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor{
-                label: None,
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-                }
-        );
 
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
 
         Self {
             surface,
@@ -168,8 +138,6 @@ impl<'a> State<'a>{
             cam_manager,
             sphere_manager,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
             light_manager  
         }
     }
@@ -207,9 +175,7 @@ impl<'a> State<'a>{
             render_pass.set_bind_group(0, &self.cam_manager.bind_group, &[]);
             render_pass.set_bind_group(1, &self.sphere_manager.bind_group, &[]);
             render_pass.set_bind_group(2, &self.light_manager.bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+            render_pass.draw(0..6, 0..1);
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));
         drawable.present();

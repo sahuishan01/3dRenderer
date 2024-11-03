@@ -83,13 +83,22 @@ var<uniform> light_count: u32;
 // Define the vertex shader
 @vertex
 fn vs_main(
-  model: VertexInput, // Input vertex data
+    @builtin(vertex_index) vert_idx: u32
 ) -> VertexOutput {
-  var out: VertexOutput;
-  out.clip_position = vec4<f32>(model.position, 1.0);
-  out.vert_pos = vec3<f32>(model.position);
-  
-  return out;
+    var out: VertexOutput;
+    var pos = array(
+        vec2(-1.0, -1.0),  // Triangle 1
+        vec2( 1.0, -1.0),
+        vec2(-1.0,  1.0),
+        vec2( 1.0, -1.0),  // Triangle 2
+        vec2( 1.0,  1.0),
+        vec2(-1.0,  1.0),
+    );
+    let xy = pos[vert_idx];
+    out.clip_position = vec4<f32>(xy, 0.0, 1.0);
+    out.vert_pos = vec3<f32>(xy, 0.0);
+    
+    return out;
 }
 
 @fragment
