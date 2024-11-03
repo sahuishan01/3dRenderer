@@ -1,9 +1,8 @@
 use wgpu::util::DeviceExt;
-
 const VERTICES: &[crate::utils::Vertex] = &[
             crate::utils::Vertex { position: [-1.0, -1.0, 0.0]}, // Bottom-left
             crate::utils::Vertex { position: [1.0, -1.0, 0.0]},  // Bottom-right
-            crate::utils::Vertex{ position: [-1.0, 1.0, 0.0]},  // Top-left
+            crate::utils::Vertex { position: [-1.0, 1.0, 0.0]},  // Top-left
             crate::utils::Vertex { position: [1.0, 1.0, 0.0]},   // Top-right
         ];
 
@@ -81,7 +80,11 @@ impl<'a> State<'a>{
         );
 
         let light_manager = crate::rendering::light::LightManager::new(
-            &device, &queue, vec![crate::rendering::light::Light::default()]);
+            &device, &queue, vec![crate::rendering::light::Light{
+                position: [-10., 10., 0.],
+                is_valid: 0, 
+                ..Default::default()
+            }]);
 
         let render_pipeline_layout = 
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{
