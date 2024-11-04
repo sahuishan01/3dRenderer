@@ -1,5 +1,4 @@
 use std::mem;
-use crate::utils::EntityCount;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -9,7 +8,7 @@ pub struct Sphere {
     pub color: [f32; 4],
     pub material: f32,
     pub refractivity: f32,
-    pub padding_: [f32; 2]
+    pub padding_: [f32; 2],
 }
 
 impl Default for Sphere {
@@ -20,7 +19,7 @@ impl Default for Sphere {
             color: [1.0, 1.0, 0., 1.0],
             material: 0.0,
             refractivity: 1.0,
-            padding_: [0., 0.]
+            padding_: [0., 0.],
         }
     }
 }
@@ -30,19 +29,16 @@ pub struct SphereManager {
     pub bind_group: wgpu::BindGroup,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub spheres: Vec<Sphere>,
-    pub count_buffer: wgpu::Buffer,
 }
-
 
 impl SphereManager {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, initial_spheres: Vec<Sphere>) -> Self {
         let spheres = initial_spheres;
-        let (sphere_buffer, count_buffer, bind_group, bind_group_layout) = 
+        let (sphere_buffer, bind_group, bind_group_layout) =
             Self::create_buffers_and_bind_group(device, &spheres);
 
         let mut manager = Self {
             sphere_buffer,
-            count_buffer,
             bind_group,
             bind_group_layout,
             spheres,
@@ -55,7 +51,7 @@ impl SphereManager {
     fn create_buffers_and_bind_group(
         device: &wgpu::Device,
         spheres: &[Sphere],
-    ) -> (wgpu::Buffer, wgpu::Buffer, wgpu::BindGroup, wgpu::BindGroupLayout) {
+    ) -> (wgpu::Buffer, wgpu::BindGroup, wgpu::BindGroupLayout) {
         let sphere_buffer_size = std::mem::size_of_val(spheres) as wgpu::BufferAddress;
         let sphere_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Sphere Buffer"),
@@ -64,61 +60,34 @@ impl SphereManager {
             mapped_at_creation: false,
         });
 
-        let count_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Sphere Count Buffer"),
-            size: mem::size_of::<EntityCount>() as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false},
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
+                count: None,
+            }],
             label: Some("Sphere Bind Group Layout"),
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: sphere_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: count_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: sphere_buffer.as_entire_binding(),
+            }],
             label: Some("Sphere Bind Group"),
         });
 
-        (sphere_buffer, count_buffer, bind_group, bind_group_layout)
+        (sphere_buffer, bind_group, bind_group_layout)
     }
 
     pub fn update_buffers(&mut self, queue: &wgpu::Queue) {
         queue.write_buffer(&self.sphere_buffer, 0, bytemuck::cast_slice(&self.spheres));
-        let count = EntityCount{ count: self.spheres.len() as u32 };
-        queue.write_buffer(&self.count_buffer, 0, bytemuck::cast_slice(&[count]));
     }
 
     pub fn add_sphere(&mut self, sphere: Sphere, device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -127,7 +96,12 @@ impl SphereManager {
         self.update_buffers(queue);
     }
 
-    pub fn add_spheres(&mut self, spheres: Vec<Sphere>, device: &wgpu::Device, queue: &wgpu::Queue){
+    pub fn add_spheres(
+        &mut self,
+        spheres: Vec<Sphere>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
         self.spheres.extend(spheres);
         self.recreate_buffer_if_necessary(device);
         self.update_buffers(queue);
@@ -142,11 +116,10 @@ impl SphereManager {
 
     pub fn recreate_buffer_if_necessary(&mut self, device: &wgpu::Device) {
         let required_size = (self.spheres.len() * mem::size_of::<Sphere>()) as wgpu::BufferAddress;
-        if required_size > self.sphere_buffer.size() { 
-            let (new_sphere_buffer, new_count_buffer, new_bind_group, _) = 
+        if required_size > self.sphere_buffer.size() {
+            let (new_sphere_buffer, new_bind_group, _) =
                 Self::create_buffers_and_bind_group(device, &self.spheres);
             self.sphere_buffer = new_sphere_buffer;
-            self.count_buffer = new_count_buffer;
             self.bind_group = new_bind_group;
         }
     }
