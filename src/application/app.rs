@@ -136,14 +136,14 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                 self.movements[0] = false;
             }
             WindowEvent::MouseInput {
-                button: MouseButton::Middle,
+                button: MouseButton::Right,
                 state: ElementState::Pressed,
                 ..
             } => {
                 self.movements[1] = true;
             }
             WindowEvent::MouseInput {
-                button: MouseButton::Middle,
+                button: MouseButton::Right,
                 state: ElementState::Released,
                 ..
             } => {
@@ -158,23 +158,23 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Left, &self.movements[0]);
+                            .movement(Direction::Left, &self.movements[0], x_diff.abs() as f32);
                     } else if x_diff < 0. {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Right, &self.movements[0]);
+                            .movement(Direction::Right, &self.movements[0], x_diff.abs() as f32);
                     }
                     if y_diff > 0. {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Up, &self.movements[0]);
+                            .movement(Direction::Up, &self.movements[0], y_diff.abs() as f32);
                     } else if y_diff < 0. {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Down, &self.movements[0]);
+                            .movement(Direction::Down, &self.movements[0], y_diff.abs() as f32);
                     }
                     state.cam_manager.camera.update_cam_info(&state.size);
                     state.queue.write_buffer(
@@ -243,37 +243,37 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Forward, &self.movements[0]);
+                            .movement(Direction::Forward, &self.movements[0], 2.5);
                     }
                     PhysicalKey::Code(KeyCode::KeyS) => {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Backward, &self.movements[0]);
+                            .movement(Direction::Backward, &self.movements[0], 2.5);
                     }
                     PhysicalKey::Code(KeyCode::KeyA) => {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Left, &self.movements[0]);
+                            .movement(Direction::Left, &self.movements[0], 2.5);
                     }
                     PhysicalKey::Code(KeyCode::KeyD) => {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Right, &self.movements[0]);
+                            .movement(Direction::Right, &self.movements[0], 2.5);
                     }
                     PhysicalKey::Code(KeyCode::KeyZ) => {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Up, &self.movements[0]);
+                            .movement(Direction::Up, &self.movements[0], 2.5);
                     }
                     PhysicalKey::Code(KeyCode::KeyX) => {
                         state
                             .cam_manager
                             .camera
-                            .movement(Direction::Down, &self.movements[0]);
+                            .movement(Direction::Down, &self.movements[0], 2.5);
                     }
                     _ => {
                         return;

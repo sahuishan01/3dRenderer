@@ -4,6 +4,11 @@ A real-time sphere renderer written in Rust with WGSL shaders, built from scratc
 
 ![sample render](assets/sample.png)
 
+### Working demo
+
+<video src="https://github.com/user-attachments/assets/740a0bb0-38ad-4bfd-b3bf-3ea076f899f5" controls style="max-width: 100%;" muted autoplay loop>
+</video>
+
 ## What it does
 
 Renders shaded spheres with configurable lighting in a window, using `wgpu` for GPU access and hand-written WGSL shaders for the rendering pipeline. No Bevy, no three-rs, no rend3 — the scene setup, camera, lighting, and draw loop are all written directly against the `wgpu` API.

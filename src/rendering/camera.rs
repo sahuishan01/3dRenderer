@@ -66,8 +66,8 @@ impl Camera {
         }
     }
 
-    pub fn movement(&mut self, direction: Direction, rotate: &bool) {
-        let factor = (&self.focus - &self.position).length() as f32 / 200.;
+    pub fn movement(&mut self, direction: Direction, rotate: &bool, amount: f32) {
+        let factor = (&self.focus - &self.position).length() as f32 / 1000. * amount;
 
         let movement_direction = match direction {
             Direction::Backward => (&self.focus - &self.position).normalize() * -factor,

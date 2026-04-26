@@ -1,20 +1,19 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::utils::mesh::Mesh;
+use crate::utils::MinHeap;
 use rayon::max_num_threads;
 use rayon::prelude::*;
-use crate::utils::MinHeap;
-use crate::utils::mesh::Mesh;
 
 use super::EntityCount;
 
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::NoUninit)]
-pub struct Triangle2{
+pub struct Triangle2 {
     pub normal: [f32; 3],
     pub p1_: f32,
-    pub v1: [f32; 3], 
+    pub v1: [f32; 3],
     pub p2_: f32,
     pub v2: [f32; 3],
     pub p3_: f32,
@@ -23,118 +22,150 @@ pub struct Triangle2{
 }
 impl Default for Triangle2 {
     fn default() -> Self {
-       Self { 
+        Self {
             normal: [0., 0., 0.],
             v1: [0., 0., 0.],
             v2: [0., 0., 0.],
-            v3: [0., 0., 0.], 
-            p1_ : 0.,
-            p2_ : 0.,
-            p3_ : 0.,
-            p4_ : 0.,
-       }
-}
+            v3: [0., 0., 0.],
+            p1_: 0.,
+            p2_: 0.,
+            p3_: 0.,
+            p4_: 0.,
+        }
+    }
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::NoUninit)]
-pub struct Node{
+pub struct Node {
     pub bounds: [f32; 6],
     pub start_triangle: usize,
     pub triangle_count: usize,
     pub left_node: usize,
     pub right_node: usize,
-    pub padding_: [u32; 6], 
+    pub padding_: [u32; 6],
 }
 
 #[repr(C)]
 pub struct BVH {
     pub nodes: Vec<Node>,
-    pub triangles: Vec<Triangle2>
+    pub triangles: Vec<Triangle2>,
 }
 
-pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH{
-    let mut triangles: std::vec::Vec<Triangle2> = Vec::with_capacity(mesh.faces.len()); 
+pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH {
+    let mut triangles: std::vec::Vec<Triangle2> = Vec::with_capacity(mesh.faces.len());
     let mut triangle_centers: Vec<[f32; 3]> = vec![[0., 0., 0.]; mesh.faces.len()];
     let chunk_size = mesh.faces.len().div_ceil(max_num_threads());
-    let bounds = Arc::new(Mutex::new([f32::MAX, f32::MAX, f32::MAX, f32::MIN, f32::MIN, f32::MIN]));
-    triangle_centers.par_chunks_mut(chunk_size).zip(triangles.par_chunks_mut(chunk_size)).enumerate().for_each(|(chunk_idx, (chunk1, chunk2))|{
-        let mut local_min = [f32::MAX, f32::MAX, f32::MAX];
-        let mut local_max = [f32::MIN, f32::MIN, f32::MIN];
-        for i in 0..chunk1.len(){
-            let global_index = chunk_idx * chunk_size + i;
-            if global_index < mesh.faces.len() {
-                let face = mesh.faces[global_index];
-                let v1 = face[0];
-                let v2 = face[1];
-                let v3 = face[2];
-                chunk1[i][0] = (mesh.vertices[v1][0] + mesh.vertices[v2][0] + mesh.vertices[v3][0]) / 3.0;
-                chunk1[i][1] = (mesh.vertices[v1][1] + mesh.vertices[v2][1] + mesh.vertices[v3][1]) / 3.0;
-                chunk1[i][2] = (mesh.vertices[v1][2] + mesh.vertices[v2][2] + mesh.vertices[v3][2]) / 3.0;
-                chunk2[i].v1 = [mesh.vertices[v1][0], mesh.vertices[v1][1], mesh.vertices[v1][2]];
-                chunk2[i].v2 = [mesh.vertices[v2][0], mesh.vertices[v2][1], mesh.vertices[v2][2]];
-                chunk2[i].v3 = [mesh.vertices[v3][0], mesh.vertices[v3][1], mesh.vertices[v3][2]];
-                chunk2[i].normal = [mesh.normals[global_index][0], mesh.normals[global_index][1], mesh.normals[global_index][2]];
-                let x_max = chunk2[i].v1[0].max(chunk2[i].v2[0].max(chunk2[i].v3[0]));
-                let y_max = chunk2[i].v1[1].max(chunk2[i].v2[1].max(chunk2[i].v3[1]));
-                let z_max = chunk2[i].v1[2].max(chunk2[i].v2[2].max(chunk2[i].v3[2]));
-                let x_min = chunk2[i].v1[0].min(chunk2[i].v2[0].min(chunk2[i].v3[0]));
-                let y_min = chunk2[i].v1[1].min(chunk2[i].v2[1].min(chunk2[i].v3[1]));
-                let z_min = chunk2[i].v1[2].min(chunk2[i].v2[2].min(chunk2[i].v3[2]));
+    let bounds = Arc::new(Mutex::new([
+        f32::MAX,
+        f32::MAX,
+        f32::MAX,
+        f32::MIN,
+        f32::MIN,
+        f32::MIN,
+    ]));
+    triangle_centers
+        .par_chunks_mut(chunk_size)
+        .zip(triangles.par_chunks_mut(chunk_size))
+        .enumerate()
+        .for_each(|(chunk_idx, (chunk1, chunk2))| {
+            let mut local_min = [f32::MAX, f32::MAX, f32::MAX];
+            let mut local_max = [f32::MIN, f32::MIN, f32::MIN];
+            for i in 0..chunk1.len() {
+                let global_index = chunk_idx * chunk_size + i;
+                if global_index < mesh.faces.len() {
+                    let face = mesh.faces[global_index];
+                    let v1 = face[0];
+                    let v2 = face[1];
+                    let v3 = face[2];
+                    chunk1[i][0] =
+                        (mesh.vertices[v1][0] + mesh.vertices[v2][0] + mesh.vertices[v3][0]) / 3.0;
+                    chunk1[i][1] =
+                        (mesh.vertices[v1][1] + mesh.vertices[v2][1] + mesh.vertices[v3][1]) / 3.0;
+                    chunk1[i][2] =
+                        (mesh.vertices[v1][2] + mesh.vertices[v2][2] + mesh.vertices[v3][2]) / 3.0;
+                    chunk2[i].v1 = [
+                        mesh.vertices[v1][0],
+                        mesh.vertices[v1][1],
+                        mesh.vertices[v1][2],
+                    ];
+                    chunk2[i].v2 = [
+                        mesh.vertices[v2][0],
+                        mesh.vertices[v2][1],
+                        mesh.vertices[v2][2],
+                    ];
+                    chunk2[i].v3 = [
+                        mesh.vertices[v3][0],
+                        mesh.vertices[v3][1],
+                        mesh.vertices[v3][2],
+                    ];
+                    chunk2[i].normal = [
+                        mesh.normals[global_index][0],
+                        mesh.normals[global_index][1],
+                        mesh.normals[global_index][2],
+                    ];
+                    let x_max = chunk2[i].v1[0].max(chunk2[i].v2[0].max(chunk2[i].v3[0]));
+                    let y_max = chunk2[i].v1[1].max(chunk2[i].v2[1].max(chunk2[i].v3[1]));
+                    let z_max = chunk2[i].v1[2].max(chunk2[i].v2[2].max(chunk2[i].v3[2]));
+                    let x_min = chunk2[i].v1[0].min(chunk2[i].v2[0].min(chunk2[i].v3[0]));
+                    let y_min = chunk2[i].v1[1].min(chunk2[i].v2[1].min(chunk2[i].v3[1]));
+                    let z_min = chunk2[i].v1[2].min(chunk2[i].v2[2].min(chunk2[i].v3[2]));
 
-                local_min[0] = local_min[0].min(x_min);
-                local_min[1] = local_min[1].min(y_min);
-                local_min[2] = local_min[2].min(z_min);
-                local_max[0] = local_max[0].max(x_max);
-                local_max[1] = local_max[1].max(y_max);
-                local_max[2] = local_max[2].max(z_max);
+                    local_min[0] = local_min[0].min(x_min);
+                    local_min[1] = local_min[1].min(y_min);
+                    local_min[2] = local_min[2].min(z_min);
+                    local_max[0] = local_max[0].max(x_max);
+                    local_max[1] = local_max[1].max(y_max);
+                    local_max[2] = local_max[2].max(z_max);
+                } else {
+                    break;
+                }
             }
-            else{
-                break
-            }
-        };
-        let mut bound = bounds.lock().unwrap();
-        bound[0] = bound[0].min(local_min[0]);
-        bound[1] = bound[1].min(local_min[1]);
-        bound[2] = bound[2].min(local_min[2]);
-        bound[3] = bound[3].max(local_max[0]);
-        bound[4] = bound[4].max(local_max[1]);
-        bound[5] = bound[5].max(local_max[2]);
-    });
+            let mut bound = bounds.lock().unwrap();
+            bound[0] = bound[0].min(local_min[0]);
+            bound[1] = bound[1].min(local_min[1]);
+            bound[2] = bound[2].min(local_min[2]);
+            bound[3] = bound[3].max(local_max[0]);
+            bound[4] = bound[4].max(local_max[1]);
+            bound[5] = bound[5].max(local_max[2]);
+        });
     let final_bounds = bounds.lock().unwrap();
-    let root_node = Node{
+    let root_node = Node {
         bounds: *final_bounds,
         start_triangle: 0,
         triangle_count: triangle_centers.len(),
         left_node: 0,
         right_node: 0,
-        padding_: [0, 0, 0, 0, 0, 0]
+        padding_: [0, 0, 0, 0, 0, 0],
     };
     let mut nodes = vec![root_node];
     let depth = depth - 1;
     create_nodes(&mut triangle_centers, &mut triangles, &mut nodes, depth, 0);
-    BVH{
-        nodes,
-        triangles,
-    }
+    BVH { nodes, triangles }
 }
 
-pub fn create_nodes(triangle_centers: &mut Vec<[f32; 3]>, triangles: &mut Vec<Triangle2>, nodes: &mut Vec<Node>, depth: u8, parent_node_index: usize){
+pub fn create_nodes(
+    triangle_centers: &mut Vec<[f32; 3]>,
+    triangles: &mut Vec<Triangle2>,
+    nodes: &mut Vec<Node>,
+    depth: u8,
+    parent_node_index: usize,
+) {
     let bounds = nodes[parent_node_index].bounds;
     let x_size = bounds[3] - bounds[0];
     let y_size = bounds[4] - bounds[1];
     let z_size = bounds[5] - bounds[2];
-    if depth == 0 { return };
-    let compare_index = if x_size > y_size.max(z_size){
+    if depth == 0 {
+        return;
+    };
+    let compare_index = if x_size > y_size.max(z_size) {
         0
-    }
-    else if y_size > z_size{
+    } else if y_size > z_size {
         1
-    }
-    else{
+    } else {
         2
     };
-    
+
     let split_point = (bounds[compare_index + 3] + bounds[compare_index]) / 2.;
     let mut left_bounds = bounds;
     let mut right_bounds = bounds;
@@ -142,51 +173,62 @@ pub fn create_nodes(triangle_centers: &mut Vec<[f32; 3]>, triangles: &mut Vec<Tr
     right_bounds[compare_index] = split_point;
     let mut right_indices = MinHeap::new();
     let mut last_left_triangle_index = nodes[parent_node_index].start_triangle;
-    let parent_last_index = nodes[parent_node_index].triangle_count + nodes[parent_node_index].start_triangle;
-    for i in nodes[parent_node_index].start_triangle..parent_last_index{
+    let parent_last_index =
+        nodes[parent_node_index].triangle_count + nodes[parent_node_index].start_triangle;
+    for i in nodes[parent_node_index].start_triangle..parent_last_index {
         if triangle_centers[i][compare_index] <= split_point {
-            if !right_indices.is_empty(){
+            if !right_indices.is_empty() {
                 let swap_index = right_indices.pop().unwrap();
                 triangles.swap(i, swap_index);
                 triangle_centers.swap(i, swap_index);
                 last_left_triangle_index = swap_index;
-            }
-            else{
+            } else {
                 last_left_triangle_index = i;
             }
-        }
-        else{
+        } else {
             right_indices.push(i);
         }
     }
     let current_dept = depth - 1;
-    if last_left_triangle_index > nodes[parent_node_index].start_triangle{
+    if last_left_triangle_index > nodes[parent_node_index].start_triangle {
         let left_node = Node {
             bounds: left_bounds,
             start_triangle: nodes[parent_node_index].start_triangle,
             triangle_count: last_left_triangle_index - nodes[parent_node_index].start_triangle,
             left_node: 0,
             right_node: 0,
-            padding_: [0, 0, 0, 0, 0, 0]
+            padding_: [0, 0, 0, 0, 0, 0],
         };
         nodes.push(left_node);
         let left_node_index = nodes.len() - 1;
         nodes[parent_node_index].left_node = left_node_index;
-        create_nodes(triangle_centers, triangles, nodes, current_dept, left_node_index);
+        create_nodes(
+            triangle_centers,
+            triangles,
+            nodes,
+            current_dept,
+            left_node_index,
+        );
     }
-    if parent_last_index > last_left_triangle_index{
-        let right_node = Node{
+    if parent_last_index > last_left_triangle_index {
+        let right_node = Node {
             bounds: right_bounds,
             start_triangle: last_left_triangle_index,
             triangle_count: parent_last_index - last_left_triangle_index,
             left_node: 0,
             right_node: 0,
-            padding_: [0, 0, 0, 0, 0, 0]
+            padding_: [0, 0, 0, 0, 0, 0],
         };
         nodes.push(right_node);
         let right_node_index = nodes.len() - 1;
         nodes[parent_node_index].right_node = right_node_index;
-        create_nodes(triangle_centers, triangles, nodes, current_dept, right_node_index);
+        create_nodes(
+            triangle_centers,
+            triangles,
+            nodes,
+            current_dept,
+            right_node_index,
+        );
     }
 }
 
@@ -202,8 +244,15 @@ pub struct BvhManager {
 
 impl BvhManager {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, mesh: &Mesh) -> Self {
-        let (nodes_buffer, triangles_buffer, nodes_count_buffer, triangles_count_buffer, bind_group, bind_group_layout, bvh) = Self::create_buffers_and_bind_group(device, mesh);
-
+        let (
+            nodes_buffer,
+            triangles_buffer,
+            nodes_count_buffer,
+            triangles_count_buffer,
+            bind_group,
+            bind_group_layout,
+            bvh,
+        ) = Self::create_buffers_and_bind_group(device, mesh);
 
         let mut manager = Self {
             nodes_buffer,
@@ -217,11 +266,20 @@ impl BvhManager {
 
         manager.update_buffers(queue);
         manager
-
     }
 
-    fn create_buffers_and_bind_group(device: &wgpu::Device, mesh: &Mesh) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, wgpu::BindGroup, wgpu::BindGroupLayout, BVH){
-            
+    fn create_buffers_and_bind_group(
+        device: &wgpu::Device,
+        mesh: &Mesh,
+    ) -> (
+        wgpu::Buffer,
+        wgpu::Buffer,
+        wgpu::Buffer,
+        wgpu::Buffer,
+        wgpu::BindGroup,
+        wgpu::BindGroupLayout,
+        BVH,
+    ) {
         let bvh = create_bvh(mesh, 25);
         let nodes_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Nodes buffer"),
@@ -229,7 +287,7 @@ impl BvhManager {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
+
         let triangles_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Triangles buffer"),
             size: (std::mem::size_of::<Triangle2>() * bvh.triangles.len()) as wgpu::BufferAddress,
@@ -256,7 +314,7 @@ impl BvhManager {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false},
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -266,7 +324,7 @@ impl BvhManager {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false},
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -319,12 +377,23 @@ impl BvhManager {
             label: Some("Bvh Bind Group"),
         });
 
-        (nodes_buffer, triangles_buffer, nodes_count_buffer, triangles_count_buffer, bind_group, bind_group_layout, bvh)
+        (
+            nodes_buffer,
+            triangles_buffer,
+            nodes_count_buffer,
+            triangles_count_buffer,
+            bind_group,
+            bind_group_layout,
+            bvh,
+        )
     }
 
-    fn update_buffers(&mut self, queue: &wgpu::Queue){
+    fn update_buffers(&mut self, queue: &wgpu::Queue) {
         queue.write_buffer(&self.nodes_buffer, 0, bytemuck::cast_slice(&self.bvh.nodes));
-        let _count = EntityCount{count: self.bvh.nodes.len() as u32};
+        let _count = EntityCount {
+            count: self.bvh.nodes.len() as u32,
+        };
+        queue.write_buffer(&self.nodes_count_buffer, 0, bytemuck::cast_slice(&[_count]));
     }
 }
 
@@ -446,17 +515,15 @@ impl BvhManager {
 //}
 
 #[cfg(test)]
-mod test{
+mod test {
     use std::{path::PathBuf, str::FromStr, time::Instant};
 
     use crate::utils::mesh::load_mesh;
 
     use super::create_bvh;
 
-
     #[test]
-    fn bvh_test(){
-
+    fn bvh_test() {
         let mesh = load_mesh(&PathBuf::from_str("../../STLS/Raw/1.stl").unwrap()).unwrap();
         let start = Instant::now();
         let _bvh = create_bvh(&mesh, 20);

@@ -1,3 +1,4 @@
+// types
 // Define constants for pi, max float value, and max u32 value
 const PI: f32 = 3.141592653589793; // Define pi constant
 const MAX_FLOAT: f32 = 3.4028235e38; // Define max float value
@@ -41,6 +42,209 @@ struct Ray {
   inv: vec3<f32>, // Inverse of the direction vector
 }
 
+
+//shpere
+
+fn random_hemisphere_direction(normal: vec3<f32>, seed: vec2<f32>) -> vec3<f32> {
+    // Generate random angles for spherical coordinates in the hemisphere
+    let phi = 2.0 * 3.14159 * random_float(seed); // Random angle around the hemisphere
+    let cos_theta = random_float(seed + vec2<f32>(1.0, 0.0)); // Random angle from the normal
+    let sin_theta = sqrt(1.0 - cos_theta * cos_theta); // Compute sin(theta) from cos(theta)
+
+    // Create a direction vector in local tangent space
+    let local_dir = vec3<f32>(
+        cos(phi) * sin_theta,
+        sin(phi) * sin_theta,
+        cos_theta
+    );
+
+    // Define a tangent coordinate system around the normal
+    let tangent = normalize(cross(
+        select(vec3<f32>(1.0, 0.0, 0.0),
+            vec3<f32>(0.0, 1.0, 0.0),
+            abs(normal.x) > 0.9), // Choose tangent axis based on normal's orientation
+        normal
+    ));
+    let bitangent = cross(normal, tangent);
+
+    // Convert the local direction to world space by transforming with the tangent space basis
+    return normalize(
+        tangent * local_dir.x + bitangent * local_dir.y + normal * local_dir.z
+    );
+}
+
+// Generates a pseudo-random float based on a 2D seed
+fn random_float(seed: vec2<f32>) -> f32 {
+    return fract(sin(dot(seed, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+}
+// Calculates the point along a ray at a given distance
+fn ray_at(ray: Ray, distance: f32) -> vec3<f32> {
+    return ray.origin + ray.direction * distance;
+}
+
+// Computes the angle in radians between two vectors
+fn angle_between_vectors(a: vec3<f32>, b: vec3<f32>) -> f32 {
+    let dot_product = dot(a, b);
+    let magnitudes = length(a) * length(b);
+    return acos(dot_product / magnitudes); // Compute the angle using the arccos of the dot product
+}
+
+// Tests for an intersection between a ray and a sphere
+fn hit_sphere_result(r: Ray, center: vec3<f32>, radius: f32) -> HitResult {
+    let oc   = r.origin - center;
+    let half_b = dot(oc, r.direction);         // b/2
+    let c    = dot(oc, oc) - radius * radius;
+    let disc = half_b * half_b - c;            // discriminant simplified
+
+    if disc < 0.0 {
+        return HitResult(MAX_FLOAT, vec3<f32>(0.0));
+    }
+
+    let sq = sqrt(disc);
+    var t  = -half_b - sq;       // no /2a since a=1
+    if t < 0.001 { t = -half_b + sq; }    // 0.001 replaces your epsilon push
+    if t < 0.001 {
+        return HitResult(MAX_FLOAT, vec3<f32>(0.0));
+    }
+
+    let hit_point = ray_at(r, t);
+    let normal    = normalize(hit_point - center);
+    return HitResult(t, normal);
+}
+
+// Calculates refraction or reflection of a ray through a surface
+fn refract_ray(incident: vec3<f32>, normal: vec3<f32>, n1: f32, n2: f32) -> vec3<f32> {
+    let n = n1 / n2; // Ratio of refraction indices
+    let cos_i = -dot(normal, incident); // Cosine of incident angle
+    let sin_t2 = n * n * (1.0 - cos_i * cos_i); // Calculate sin^2 of transmission angle
+    
+    // Check for total internal reflection
+    if sin_t2 > 1.0 {
+        // If total internal reflection occurs, return the reflected vector
+        return reflect(incident, normal);
+    }
+
+    // Calculate cos(theta) for the transmitted angle
+    let cos_t = sqrt(1.0 - sin_t2);
+
+    // Compute the refracted direction using Snell's law
+    return n * incident + (n * cos_i - cos_t) * normal;
+}
+
+
+// skybox 
+
+fn hash3(p: vec3<f32>) -> f32 {
+    var p3 = fract(vec3<f32>(p.xyz) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// 3D noise function for seamless cloud generation
+fn noise3d(p: vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    
+    // Eight corners of the cube
+    let a = hash3(i);
+    let b = hash3(i + vec3<f32>(1.0, 0.0, 0.0));
+    let c = hash3(i + vec3<f32>(0.0, 1.0, 0.0));
+    let d = hash3(i + vec3<f32>(1.0, 1.0, 0.0));
+    let e = hash3(i + vec3<f32>(0.0, 0.0, 1.0));
+    let g = hash3(i + vec3<f32>(1.0, 0.0, 1.0));
+    let h = hash3(i + vec3<f32>(0.0, 1.0, 1.0));
+    let k = hash3(i + vec3<f32>(1.0, 1.0, 1.0));
+    
+    // Smooth interpolation
+    let u = f * f * (3.0 - 2.0 * f);
+
+    return mix(
+        mix(mix(a, b, u.x), mix(c, d, u.x), u.y),
+        mix(mix(e, g, u.x), mix(h, k, u.x), u.y),
+        u.z
+    );
+}
+
+
+// Fractal Brownian Motion for more natural-looking clouds
+fn fbm3d(p: vec3<f32>) -> f32 {
+    var value = 0.0;
+    var amplitude = 0.5;
+    var frequency = 3.0;
+
+    for (var i = 0; i < 5; i++) {
+        value += amplitude * noise3d(p * frequency);
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+
+    return value;
+}
+
+fn worley(p: vec3<f32>) -> f32 {
+    let i = floor(p);
+    var min_dist = 10.0;
+    for (var x = -1; x <= 1; x++) {
+        for (var y = -1; y <= 1; y++) {
+            for (var z = -1; z <= 1; z++) {
+                let cell = i + vec3<f32>(f32(x), f32(y), f32(z));
+                // Random point within this cell
+                let rand_pt = cell + vec3<f32>(
+                    hash3(cell),
+                    hash3(cell + vec3(7.1, 0.0, 0.0)),
+                    hash3(cell + vec3(0.0, 3.7, 0.0))
+                );
+                min_dist = min(min_dist, length(p - rand_pt));
+            }
+        }
+    }
+    return min_dist;
+}
+fn fbm3d_octaves(p: vec3<f32>, count: u32) -> f32 {
+    var value = 0.0; var amplitude = 0.5; var frequency = 3.0;
+    for (var i = 0u; i < count; i++) {
+        value += amplitude * noise3d(p * frequency);
+        amplitude *= 0.5; frequency *= 2.0;
+    }
+    return value;
+}
+fn domain_warped_fbm(p: vec3<f32>) -> f32 {
+    // Your warp vec already costs 3 × fbm3d = 3 × 5 × 8 = 120 hash calls
+    // Reduce warp fbm to 3 octaves — imperceptible at skybox distance
+    let warp = vec3<f32>(
+        fbm3d_octaves(p + vec3(0.0, 0.0, 0.0), 3u),
+        fbm3d_octaves(p + vec3(5.2, 1.3, 2.8), 3u),
+        fbm3d_octaves(p + vec3(9.1, 3.7, 6.4), 3u)
+    );
+    return mix(worley(p), fbm3d(p + 1.5 * warp), 0.6);
+}
+
+fn sample_skybox(direction: vec3<f32>) -> vec4<f32> {
+    // Generate cloud pattern using 3D direction directly to avoid seams
+    let cloud_scale = 2.0;
+    let cloud_density = domain_warped_fbm(direction * cloud_scale);
+    
+    // Base sky gradient
+    let t = 0.5 * (direction.y + 1.0);
+    let sky_color = mix(
+        vec4<f32>(0.0, 0.0, 0.0, 1.0),  // Horizon color
+        vec4<f32>(0.5, 0.7, 1.0, 1.0),  // Sky color at the top
+        t
+    );
+    
+    // Cloud color and transparency
+    let cloud_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+    let cloud_coverage = 0.4; // Adjust this value to control cloud coverage (0.0 - 1.0)
+    let cloud_softness = 0.1; // Adjust this value to control cloud edge softness
+    
+    // Only show clouds above horizon (direction.y > 0)
+    let cloud_mask = smoothstep(0.0, cloud_softness, cloud_density - (1.0 - cloud_coverage)) * smoothstep(-0.1, 0.1, direction.y);
+    
+    // Mix sky color with clouds
+    return mix(sky_color, cloud_color, cloud_mask * 0.7); // 0.7 to make clouds slightly transparent
+}
+
+
 // Define a struct to represent vertex output
 struct VertexOutput {
   @builtin(position) clip_position: vec4<f32>, // Clip space position
@@ -75,7 +279,7 @@ var<storage, read_write> spheres: array<Sphere>;
 var<storage, read_write> lights: array<Light>;
 // Bind light count to a uniform buffer
 
-const offset_count = 4u;
+const offset_count = 8u;
 // Define the vertex shader
 @vertex
 fn vs_main(
@@ -156,7 +360,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
     
                 // Check for ray-sphere intersection
-                let hit_result = hit_sphere(ray, sphere.center, sphere.radius);
+                let hit_result = hit_sphere_result(ray, sphere.center, sphere.radius);
     
                 // Update closest hit if a nearer hit is found
                 if hit_result.distance < closest_hit.distance {
@@ -192,7 +396,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     var hit_found = false;
                     for (var k = 0u; k < arrayLength(&spheres); k++) {
                         let sphere = spheres[k];
-                        let hit_result = hit_sphere(ray_2, sphere.center, sphere.radius);
+                        let hit_result = hit_sphere_result(ray_2, sphere.center, sphere.radius);
                         if hit_result.distance != MAX_FLOAT {
                             hit_found = true;
                             break;
@@ -246,169 +450,4 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Return the calculated color after all bounces and lighting computations
     return final_color;
-}
-
-fn random_hemisphere_direction(normal: vec3<f32>, seed: vec2<f32>) -> vec3<f32> {
-    // Generate random angles for spherical coordinates in the hemisphere
-    let phi = 2.0 * 3.14159 * random_float(seed); // Random angle around the hemisphere
-    let cos_theta = random_float(seed + vec2<f32>(1.0, 0.0)); // Random angle from the normal
-    let sin_theta = sqrt(1.0 - cos_theta * cos_theta); // Compute sin(theta) from cos(theta)
-
-    // Create a direction vector in local tangent space
-    let local_dir = vec3<f32>(
-        cos(phi) * sin_theta,
-        sin(phi) * sin_theta,
-        cos_theta
-    );
-
-    // Define a tangent coordinate system around the normal
-    let tangent = normalize(cross(
-        select(vec3<f32>(1.0, 0.0, 0.0),
-            vec3<f32>(0.0, 1.0, 0.0),
-            abs(normal.x) > 0.9), // Choose tangent axis based on normal's orientation
-        normal
-    ));
-    let bitangent = cross(normal, tangent);
-
-    // Convert the local direction to world space by transforming with the tangent space basis
-    return normalize(
-        tangent * local_dir.x + bitangent * local_dir.y + normal * local_dir.z
-    );
-}
-
-// Generates a pseudo-random float based on a 2D seed
-fn random_float(seed: vec2<f32>) -> f32 {
-    return fract(sin(dot(seed, vec2<f32>(12.9898, 78.233))) * 43758.5453);
-}
-fn hash(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-// 2D noise function for cloud generation
-fn noise2d(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    
-    // Four corners of the tile
-    let a = hash(i);
-    let b = hash(i + vec2<f32>(1.0, 0.0));
-    let c = hash(i + vec2<f32>(0.0, 1.0));
-    let d = hash(i + vec2<f32>(1.0, 1.0));
-    
-    // Smooth interpolation
-    let u = f * f * (3.0 - 2.0 * f);
-
-    return mix(
-        mix(a, b, u.x),
-        mix(c, d, u.x),
-        u.y
-    );
-}
-
-// Fractal Brownian Motion for more natural-looking clouds
-fn fbm(p: vec2<f32>) -> f32 {
-    var value = 0.0;
-    var amplitude = 0.5;
-    var frequency = 3.0;
-
-    for (var i = 0; i < 5; i++) {
-        value += amplitude * noise2d(p * frequency);
-        amplitude *= 0.5;
-        frequency *= 2.0;
-    }
-
-    return value;
-}
-
-fn sample_skybox(direction: vec3<f32>) -> vec4<f32> {
-    // Map direction to UV coordinates for cloud sampling
-    let phi = atan2(direction.z, direction.x);
-    let theta = acos(direction.y);
-    let uv = vec2<f32>(phi / (2.0 * 3.14159) + 0.5, theta / 3.14159);
-    
-    // Generate cloud pattern
-    let cloud_scale = 4.0;
-    let cloud_density = fbm(uv * cloud_scale + vec2<f32>(0.1)); // Add small offset for variation
-    
-    // Base sky gradient
-    let t = 0.5 * (direction.y + 1.0);
-    let sky_color = mix(
-        vec4<f32>(0.1, 0.2, 1.0, 1.0),  // Horizon color
-        vec4<f32>(0.5, 0.7, 1.0, 1.0),  // Sky color at the top
-        t
-    );
-    
-    // Cloud color and transparency
-    let cloud_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
-    let cloud_coverage = 0.4; // Adjust this value to control cloud coverage (0.0 - 1.0)
-    let cloud_softness = 0.1; // Adjust this value to control cloud edge softness
-    
-    // Only show clouds above horizon (direction.y > 0)
-    let cloud_mask = smoothstep(0.0, cloud_softness, cloud_density - (1.0 - cloud_coverage)) * smoothstep(-0.1, 0.1, direction.y);
-    
-    // Mix sky color with clouds
-    return mix(sky_color, cloud_color, cloud_mask * 0.7); // 0.7 to make clouds slightly transparent
-}
-
-// Calculates the point along a ray at a given distance
-fn ray_at(ray: Ray, distance: f32) -> vec3<f32> {
-    return ray.origin + ray.direction * distance;
-}
-
-// Computes the angle in radians between two vectors
-fn angle_between_vectors(a: vec3<f32>, b: vec3<f32>) -> f32 {
-    let dot_product = dot(a, b);
-    let magnitudes = length(a) * length(b);
-    return acos(dot_product / magnitudes); // Compute the angle using the arccos of the dot product
-}
-
-// Tests for an intersection between a ray and a sphere
-fn hit_sphere(r: Ray, sphere_center: vec3<f32>, sphere_radius: f32) -> HitResult {
-    let det = r.origin - sphere_center; // Vector from ray origin to sphere center
-    let a = dot(r.direction, r.direction); // Quadratic term coefficient
-    let b = 2.0 * dot(det, r.direction); // Linear term coefficient
-    let c = dot(det, det) - sphere_radius * sphere_radius; // Constant term
-    let discriminant = b * b - 4.0 * a * c; // Calculate discriminant
-
-    // Check if the discriminant is negative, meaning no intersection
-    if discriminant < 0.0 {
-        return HitResult(MAX_FLOAT, vec3<f32>(0.0)); // No intersection
-    }
-
-    // Calculate the nearest intersection point using the discriminant
-    let sqrt_discriminant = sqrt(discriminant);
-    var t = (-b - sqrt_discriminant) / (2.0 * a); // First possible intersection point
-    if t < 0.0 { // If behind the ray, check second intersection point
-        t = (-b + sqrt_discriminant) / (2.0 * a);
-    }
-    if t < 0.0 { // If both are behind the ray, no intersection
-        return HitResult(MAX_FLOAT, vec3<f32>(0.0));
-    }
-
-    // Calculate the hit point and normal at the intersection
-    let hit_point = ray_at(r, t);
-    let normal = normalize(hit_point - sphere_center);
-
-    return HitResult(t, normal);
-}
-
-// Calculates refraction or reflection of a ray through a surface
-fn refract_ray(incident: vec3<f32>, normal: vec3<f32>, n1: f32, n2: f32) -> vec3<f32> {
-    let n = n1 / n2; // Ratio of refraction indices
-    let cos_i = -dot(normal, incident); // Cosine of incident angle
-    let sin_t2 = n * n * (1.0 - cos_i * cos_i); // Calculate sin^2 of transmission angle
-    
-    // Check for total internal reflection
-    if sin_t2 > 1.0 {
-        // If total internal reflection occurs, return the reflected vector
-        return reflect(incident, normal);
-    }
-
-    // Calculate cos(theta) for the transmitted angle
-    let cos_t = sqrt(1.0 - sin_t2);
-
-    // Compute the refracted direction using Snell's law
-    return n * incident + (n * cos_i - cos_t) * normal;
 }

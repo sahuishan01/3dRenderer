@@ -1,5 +1,3 @@
-use crate::utils::EntityCount;
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::NoUninit)]
 pub struct Light {
