@@ -6,8 +6,9 @@ A real-time sphere renderer written in Rust with WGSL shaders, built from scratc
 
 ### Working demo
 
-<video src="https://github.com/user-attachments/assets/740a0bb0-38ad-4bfd-b3bf-3ea076f899f5" controls style="max-width: 100%;" muted autoplay loop>
+<video src="https://github.com/user-attachments/assets/1582f30f-6242-4a90-b755-49836891770a" controls style="max-width: 100%;" muted autoplay loop>
 </video>
+
 
 ## What it does
 
