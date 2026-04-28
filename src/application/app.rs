@@ -1,7 +1,9 @@
 use winit::{
+    dpi::PhysicalSize,
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     keyboard::{KeyCode, PhysicalKey},
-    window::Window,
+    platform::windows::IconExtWindows,
+    window::{Icon, Window},
 };
 
 use crate::{
@@ -27,6 +29,10 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                     .create_window(Window::default_attributes())
                     .unwrap(),
             );
+            window.set_title("3D Renderer");
+            window.set_window_icon(Some(
+                Icon::from_path("assets/logo.ico", Some(PhysicalSize::new(64, 64))).unwrap(),
+            ));
             self.window = Some(window.clone());
 
             let state = pollster::block_on(State::new(window, None));
@@ -53,18 +59,15 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                 .add_lights(lights, &state.device, &state.queue);
             let mut rng = rand::thread_rng();
             let mut spheres: Vec<Sphere> = Vec::new();
-            let range_val = 5_f32;
+            let range_val = 10_f32;
             for _ in 0..5 {
                 let sphere = Sphere {
                     center: [
-                        rng.gen_range(-range_val..range_val), // Random x position between -1000 and
-                        // 1000
-                        rng.gen_range(-range_val..range_val), // Random y position between -100000 and
-                        // 1000
-                        rng.gen_range(-range_val..range_val), // Random z position between -1000 and
-                                                              // 1000
+                        rng.gen_range(-range_val..range_val), // Random x position
+                        rng.gen_range(-range_val..range_val), // Random y position
+                        rng.gen_range(-range_val..range_val), // Random z position
                     ],
-                    radius: rng.gen_range(0.5..2.0), // Random radius between 0.5 and 5
+                    radius: rng.gen_range(1.0..3.0), // Random radius between 0.5 and 5
                     color: [
                         rng.gen_range(0.0..1.0), // Random red value between 0 and 1
                         rng.gen_range(0.0..1.0), // Random green value between 0 and 1
@@ -155,26 +158,30 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                     let y_diff = self.last_mouse_pos.y - position.y;
                     let state = self.state.as_mut().unwrap();
                     if x_diff > 0. {
-                        state
-                            .cam_manager
-                            .camera
-                            .movement(Direction::Left, &self.movements[0], x_diff.abs() as f32);
+                        state.cam_manager.camera.movement(
+                            Direction::Left,
+                            &self.movements[0],
+                            x_diff.abs() as f32,
+                        );
                     } else if x_diff < 0. {
-                        state
-                            .cam_manager
-                            .camera
-                            .movement(Direction::Right, &self.movements[0], x_diff.abs() as f32);
+                        state.cam_manager.camera.movement(
+                            Direction::Right,
+                            &self.movements[0],
+                            x_diff.abs() as f32,
+                        );
                     }
                     if y_diff > 0. {
-                        state
-                            .cam_manager
-                            .camera
-                            .movement(Direction::Up, &self.movements[0], y_diff.abs() as f32);
+                        state.cam_manager.camera.movement(
+                            Direction::Up,
+                            &self.movements[0],
+                            y_diff.abs() as f32,
+                        );
                     } else if y_diff < 0. {
-                        state
-                            .cam_manager
-                            .camera
-                            .movement(Direction::Down, &self.movements[0], y_diff.abs() as f32);
+                        state.cam_manager.camera.movement(
+                            Direction::Down,
+                            &self.movements[0],
+                            y_diff.abs() as f32,
+                        );
                     }
                     state.cam_manager.camera.update_cam_info(&state.size);
                     state.queue.write_buffer(
@@ -240,16 +247,18 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                 let state = self.state.as_mut().unwrap();
                 match physical_key {
                     PhysicalKey::Code(KeyCode::KeyW) => {
-                        state
-                            .cam_manager
-                            .camera
-                            .movement(Direction::Forward, &self.movements[0], 2.5);
+                        state.cam_manager.camera.movement(
+                            Direction::Forward,
+                            &self.movements[0],
+                            2.5,
+                        );
                     }
                     PhysicalKey::Code(KeyCode::KeyS) => {
-                        state
-                            .cam_manager
-                            .camera
-                            .movement(Direction::Backward, &self.movements[0], 2.5);
+                        state.cam_manager.camera.movement(
+                            Direction::Backward,
+                            &self.movements[0],
+                            2.5,
+                        );
                     }
                     PhysicalKey::Code(KeyCode::KeyA) => {
                         state
@@ -258,10 +267,11 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                             .movement(Direction::Left, &self.movements[0], 2.5);
                     }
                     PhysicalKey::Code(KeyCode::KeyD) => {
-                        state
-                            .cam_manager
-                            .camera
-                            .movement(Direction::Right, &self.movements[0], 2.5);
+                        state.cam_manager.camera.movement(
+                            Direction::Right,
+                            &self.movements[0],
+                            2.5,
+                        );
                     }
                     PhysicalKey::Code(KeyCode::KeyZ) => {
                         state

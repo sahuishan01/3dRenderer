@@ -1,3 +1,7 @@
+use std::{path::PathBuf, str::FromStr};
+
+use crate::utils::mesh::{load_mesh, Mesh};
+
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>,
     pub device: wgpu::Device,
@@ -7,6 +11,7 @@ pub struct State<'a> {
     pub cam_manager: crate::rendering::camera::CamManager,
     pub sphere_manager: crate::rendering::sphere::SphereManager,
     pub light_manager: crate::rendering::light::LightManager,
+    pub bvh_manager: crate::utils::bvh::BvhManager,
     pub render_pipeline: wgpu::RenderPipeline,
 }
 
@@ -88,6 +93,9 @@ impl<'a> State<'a> {
                 ..Default::default()
             }],
         );
+        let path = PathBuf::from_str("assets/monkey.stl").unwrap();
+        let mesh = load_mesh(&path).unwrap();
+        let bvh_manager = crate::utils::bvh::BvhManager::new(&device, &queue, &mesh);
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -96,6 +104,7 @@ impl<'a> State<'a> {
                     &cam_manager.bind_group_layout,
                     &sphere_manager.bind_group_layout,
                     &light_manager.bind_group_layout,
+                    &bvh_manager.bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -157,6 +166,7 @@ impl<'a> State<'a> {
             sphere_manager,
             render_pipeline,
             light_manager,
+            bvh_manager,
         }
     }
 
@@ -197,6 +207,7 @@ impl<'a> State<'a> {
             render_pass.set_bind_group(0, &self.cam_manager.bind_group, &[]);
             render_pass.set_bind_group(1, &self.sphere_manager.bind_group, &[]);
             render_pass.set_bind_group(2, &self.light_manager.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.bvh_manager.bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));

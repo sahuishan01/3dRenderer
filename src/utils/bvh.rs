@@ -38,12 +38,12 @@ impl Default for Triangle2 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::NoUninit)]
 pub struct Node {
-    pub bounds: [f32; 6],
-    pub start_triangle: usize,
-    pub triangle_count: usize,
-    pub left_node: usize,
-    pub right_node: usize,
-    pub padding_: [u32; 6],
+    pub bounds: [f32; 6],    // 24 bytes — aabb min/max packed
+    pub start_triangle: u32, // was usize (8 bytes) — now 4 bytes
+    pub triangle_count: u32, // was usize (8 bytes) — now 4 bytes
+    pub left_node: u32,      // was usize (8 bytes) — now 4 bytes
+    pub right_node: u32,     // was usize (8 bytes) — now 4 bytes
+    pub padding_: [u32; 6],  // 24 bytes — keeps struct 64-byte total
 }
 
 #[repr(C)]
@@ -53,7 +53,7 @@ pub struct BVH {
 }
 
 pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH {
-    let mut triangles: std::vec::Vec<Triangle2> = Vec::with_capacity(mesh.faces.len());
+    let mut triangles: std::vec::Vec<Triangle2> = vec![Triangle2::default(); mesh.faces.len()];
     let mut triangle_centers: Vec<[f32; 3]> = vec![[0., 0., 0.]; mesh.faces.len()];
     let chunk_size = mesh.faces.len().div_ceil(max_num_threads());
     let bounds = Arc::new(Mutex::new([
@@ -133,7 +133,7 @@ pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH {
     let root_node = Node {
         bounds: *final_bounds,
         start_triangle: 0,
-        triangle_count: triangle_centers.len(),
+        triangle_count: triangle_centers.len() as u32,
         left_node: 0,
         right_node: 0,
         padding_: [0, 0, 0, 0, 0, 0],
@@ -142,6 +142,22 @@ pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH {
     let depth = depth - 1;
     create_nodes(&mut triangle_centers, &mut triangles, &mut nodes, depth, 0);
     BVH { nodes, triangles }
+}
+
+pub fn compute_bounds(triangles: &[Triangle2], start: usize, end: usize) -> [f32; 6] {
+    let mut min_b = [f32::MAX; 3];
+    let mut max_b = [f32::MIN; 3];
+    for i in start..end {
+        let tri = &triangles[i];
+        min_b[0] = min_b[0].min(tri.v1[0].min(tri.v2[0].min(tri.v3[0])));
+        min_b[1] = min_b[1].min(tri.v1[1].min(tri.v2[1].min(tri.v3[1])));
+        min_b[2] = min_b[2].min(tri.v1[2].min(tri.v2[2].min(tri.v3[2])));
+
+        max_b[0] = max_b[0].max(tri.v1[0].max(tri.v2[0].max(tri.v3[0])));
+        max_b[1] = max_b[1].max(tri.v1[1].max(tri.v2[1].max(tri.v3[1])));
+        max_b[2] = max_b[2].max(tri.v1[2].max(tri.v2[2].max(tri.v3[2])));
+    }
+    [min_b[0], min_b[1], min_b[2], max_b[0], max_b[1], max_b[2]]
 }
 
 pub fn create_nodes(
@@ -167,30 +183,31 @@ pub fn create_nodes(
     };
 
     let split_point = (bounds[compare_index + 3] + bounds[compare_index]) / 2.;
-    let mut left_bounds = bounds;
-    let mut right_bounds = bounds;
-    left_bounds[compare_index + 3] = split_point;
-    right_bounds[compare_index] = split_point;
-    let mut right_indices = MinHeap::new();
+    let mut right_indices = MinHeap::<u32>::new();
     let mut last_left_triangle_index = nodes[parent_node_index].start_triangle;
     let parent_last_index =
         nodes[parent_node_index].triangle_count + nodes[parent_node_index].start_triangle;
-    for i in nodes[parent_node_index].start_triangle..parent_last_index {
+    for i in nodes[parent_node_index].start_triangle as usize..parent_last_index as usize {
         if triangle_centers[i][compare_index] <= split_point {
             if !right_indices.is_empty() {
                 let swap_index = right_indices.pop().unwrap();
-                triangles.swap(i, swap_index);
-                triangle_centers.swap(i, swap_index);
+                triangles.swap(i, swap_index as usize);
+                triangle_centers.swap(i, swap_index as usize);
                 last_left_triangle_index = swap_index;
             } else {
-                last_left_triangle_index = i;
+                last_left_triangle_index = i as u32;
             }
         } else {
-            right_indices.push(i);
+            right_indices.push(i as u32);
         }
     }
     let current_dept = depth - 1;
     if last_left_triangle_index > nodes[parent_node_index].start_triangle {
+        let left_bounds = compute_bounds(
+            triangles,
+            nodes[parent_node_index].start_triangle as usize,
+            last_left_triangle_index as usize,
+        );
         let left_node = Node {
             bounds: left_bounds,
             start_triangle: nodes[parent_node_index].start_triangle,
@@ -201,7 +218,7 @@ pub fn create_nodes(
         };
         nodes.push(left_node);
         let left_node_index = nodes.len() - 1;
-        nodes[parent_node_index].left_node = left_node_index;
+        nodes[parent_node_index].left_node = left_node_index as u32;
         create_nodes(
             triangle_centers,
             triangles,
@@ -211,6 +228,11 @@ pub fn create_nodes(
         );
     }
     if parent_last_index > last_left_triangle_index {
+        let right_bounds = compute_bounds(
+            triangles,
+            last_left_triangle_index as usize,
+            parent_last_index as usize,
+        );
         let right_node = Node {
             bounds: right_bounds,
             start_triangle: last_left_triangle_index,
@@ -221,7 +243,7 @@ pub fn create_nodes(
         };
         nodes.push(right_node);
         let right_node_index = nodes.len() - 1;
-        nodes[parent_node_index].right_node = right_node_index;
+        nodes[parent_node_index].right_node = right_node_index as u32;
         create_nodes(
             triangle_centers,
             triangles,
@@ -298,14 +320,14 @@ impl BvhManager {
         let nodes_count_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Nodes count buffer"),
             size: std::mem::size_of::<EntityCount>() as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let triangles_count_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Triangles count buffer"),
             size: std::mem::size_of::<EntityCount>() as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -314,7 +336,7 @@ impl BvhManager {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -324,7 +346,7 @@ impl BvhManager {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -390,10 +412,29 @@ impl BvhManager {
 
     fn update_buffers(&mut self, queue: &wgpu::Queue) {
         queue.write_buffer(&self.nodes_buffer, 0, bytemuck::cast_slice(&self.bvh.nodes));
-        let _count = EntityCount {
+        queue.write_buffer(
+            &self.triangles_buffer,
+            0,
+            bytemuck::cast_slice(&self.bvh.triangles),
+        );
+
+        let nodes_count = EntityCount {
             count: self.bvh.nodes.len() as u32,
         };
-        queue.write_buffer(&self.nodes_count_buffer, 0, bytemuck::cast_slice(&[_count]));
+        queue.write_buffer(
+            &self.nodes_count_buffer,
+            0,
+            bytemuck::cast_slice(&[nodes_count]),
+        );
+
+        let triangles_count = EntityCount {
+            count: self.bvh.triangles.len() as u32,
+        };
+        queue.write_buffer(
+            &self.triangles_count_buffer,
+            0,
+            bytemuck::cast_slice(&[triangles_count]),
+        );
     }
 }
 

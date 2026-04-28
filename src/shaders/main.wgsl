@@ -26,15 +26,6 @@ struct Light {
   intensity: f32, // Intensity of the light source
 }
 
-// Define a struct to represent a triangle
-struct Triangle {
-  normal: vec3<f32>, // Normal vector of the triangle
-  v1: vec3<f32>, // First vertex of the triangle
-  v2: vec3<f32>, // Second vertex of the triangle
-  v3: vec3<f32>, // Third vertex of the triangle
-  padding: vec4<u32> // Padding to ensure proper alignment
-}
-
 // Define a struct to represent a ray
 struct Ray {
   origin: vec3<f32>, // Origin point of the ray
@@ -71,6 +62,12 @@ fn random_hemisphere_direction(normal: vec3<f32>, seed: vec2<f32>) -> vec3<f32> 
     return normalize(
         tangent * local_dir.x + bitangent * local_dir.y + normal * local_dir.z
     );
+}
+
+// single pseudo-random float between 0-1
+fn rand(seed: vec2<f32>) -> f32 {
+  return 0.5 + 0.5 * 
+     fract(sin(dot(seed.xy, vec2(12.9898, 78.233)))* 43758.5453);
 }
 
 // Generates a pseudo-random float based on a 2D seed
@@ -244,6 +241,26 @@ fn sample_skybox(direction: vec3<f32>) -> vec4<f32> {
     return mix(sky_color, cloud_color, cloud_mask * 0.7); // 0.7 to make clouds slightly transparent
 }
 
+// BVH
+struct BVHNode {
+    bounds: array<f32, 6>,
+    start_triangle: u32,
+    triangle_count: u32,
+    left_node: u32,
+    right_node: u32,
+    padding_: array<u32, 6>,
+};
+struct Triangle {
+    n: vec3<f32>,
+    pad_n: f32,
+    v0: vec3<f32>,
+    p0: f32,
+    v1: vec3<f32>,
+    p1: f32,
+    v2: vec3<f32>,
+    p2: f32,
+};
+
 
 // Define a struct to represent vertex output
 struct VertexOutput {
@@ -272,14 +289,145 @@ var<uniform> cam_info: mat4x4<f32>;
 
 // Bind sphere data to a storage buffer
 @group(1) @binding(0)
-var<storage, read_write> spheres: array<Sphere>;
+var<storage, read> spheres: array<Sphere>;
 
 // Bind light data to a storage buffer
 @group(2) @binding(0)
-var<storage, read_write> lights: array<Light>;
+var<storage, read> lights: array<Light>;
 // Bind light count to a uniform buffer
 
+// Bind light data to a storage buffer
+@group(3) @binding(0) var<storage, read> bvh_nodes: array<BVHNode>;
+@group(3) @binding(1) var<storage, read> bvh_triangles: array<Triangle>;
+
+struct Count {
+    count: u32,
+}
+
+@group(3) @binding(2) var<uniform> bvh_nodes_count: Count;
+@group(3) @binding(3) var<uniform> bvh_triangles_count: Count;
+
 const offset_count = 8u;
+
+fn intersect_aabb(ray: Ray, bounds: array<f32, 6>) -> f32 {
+    let inv_dir = ray.inv;
+    
+    let t1 = (bounds[0] - ray.origin.x) * inv_dir.x;
+    let t2 = (bounds[3] - ray.origin.x) * inv_dir.x;
+    let t3 = (bounds[1] - ray.origin.y) * inv_dir.y;
+    let t4 = (bounds[4] - ray.origin.y) * inv_dir.y;
+    let t5 = (bounds[2] - ray.origin.z) * inv_dir.z;
+    let t6 = (bounds[5] - ray.origin.z) * inv_dir.z;
+
+    let tmin_x = min(t1, t2);
+    let tmax_x = max(t1, t2);
+    let tmin_y = min(t3, t4);
+    let tmax_y = max(t3, t4);
+    let tmin_z = min(t5, t6);
+    let tmax_z = max(t5, t6);
+
+    let tmin = max(max(tmin_x, tmin_y), tmin_z);
+    let tmax = min(min(tmax_x, tmax_y), tmax_z);
+
+    if (tmax >= tmin && tmax > 0.0) {
+        return tmin;
+    }
+    return MAX_FLOAT;
+}
+
+fn intersect_triangle(ray: Ray, tri: Triangle) -> HitResult {
+    let e1 = tri.v1 - tri.v0;
+    let e2 = tri.v2 - tri.v0;
+    let ray_cross_e2 = cross(ray.direction, e2);
+    let det = dot(e1, ray_cross_e2);
+
+    if (det > -0.0000001 && det < 0.0000001) {
+        return HitResult(MAX_FLOAT, vec3<f32>(0.0));
+    }
+
+    let inv_det = 1.0 / det;
+    let s = ray.origin - tri.v0;
+    let u = inv_det * dot(s, ray_cross_e2);
+    if (u < 0.0 || u > 1.0) {
+        return HitResult(MAX_FLOAT, vec3<f32>(0.0));
+    }
+
+    let s_cross_e1 = cross(s, e1);
+    let v = inv_det * dot(ray.direction, s_cross_e1);
+    if (v < 0.0 || u + v > 1.0) {
+        return HitResult(MAX_FLOAT, vec3<f32>(0.0));
+    }
+
+    let t = inv_det * dot(e2, s_cross_e1); 
+    if (t > 0.001) {
+        var normal = normalize(tri.n);
+        if (dot(ray.direction, normal) > 0.0) {
+            normal = -normal;
+        }
+        return HitResult(t, normal);
+    }
+    return HitResult(MAX_FLOAT, vec3<f32>(0.0));
+}
+
+fn traverse_bvh(ray: Ray) -> HitResult {
+    var stack: array<u32, 32>;
+    var stack_ptr: i32 = 0;
+    stack[stack_ptr] = 0u;
+    
+    var closest_hit = HitResult(MAX_FLOAT, vec3<f32>(0.0));
+
+    while (stack_ptr >= 0) {
+        let node_idx = stack[stack_ptr];
+        stack_ptr = stack_ptr - 1;
+        
+        let node = bvh_nodes[node_idx];
+        
+        let t_aabb = intersect_aabb(ray, node.bounds);
+        if (t_aabb >= closest_hit.distance) {
+            continue;
+        }
+
+        if (node.triangle_count > 0u) {
+            for (var i = 0u; i < node.triangle_count; i = i + 1u) {
+                let tri_idx = node.start_triangle + i;
+                let tri = bvh_triangles[tri_idx];
+                let hit = intersect_triangle(ray, tri);
+                if (hit.distance < closest_hit.distance) {
+                    closest_hit = hit;
+                }
+            }
+        } else {
+            let left_idx = node.left_node;
+            let right_idx = node.right_node;
+            
+            let t_left = intersect_aabb(ray, bvh_nodes[left_idx].bounds);
+            let t_right = intersect_aabb(ray, bvh_nodes[right_idx].bounds);
+            
+            if (t_left < closest_hit.distance && t_right < closest_hit.distance) {
+                if (t_left < t_right) {
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = right_idx;
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = left_idx;
+                } else {
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = left_idx;
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = right_idx;
+                }
+            } else if (t_left < closest_hit.distance) {
+                stack_ptr = stack_ptr + 1;
+                stack[stack_ptr] = left_idx;
+            } else if (t_right < closest_hit.distance) {
+                stack_ptr = stack_ptr + 1;
+                stack[stack_ptr] = right_idx;
+            }
+        }
+    }
+    
+    return closest_hit;
+}
+
 // Define the vertex shader
 @vertex
 fn vs_main(
@@ -320,7 +468,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var offsets: array<vec2<f32>, offset_count>;
     for (var idx = 0u; idx < half_count; idx++) {
         for (var idx2 = 0u; idx2 < half_count; idx2++) {
-            offsets[idx * half_count + idx2] = vec2(1. / f32(half_count + 1) * f32(idx + 1), 1. / f32(half_count + 1) * f32(idx2 + 1));
+            let seed = vec2<f32>(in.vert_pos.x,in.vert_pos.y) * f32(idx + 1u) * 127.1;
+            offsets[idx * half_count + idx2] = vec2<f32>(rand(seed), rand(seed + vec2<f32>(1.0, 0.0)));
         }
     }
 
@@ -369,6 +518,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     is_hit_sphere = true;
                 }
             }
+
+            // Check for intersections with the BVH
+            if (bvh_nodes_count.count > 0u) {
+                let hit_bvh = traverse_bvh(ray);
+                if (hit_bvh.distance < closest_hit.distance) {
+                    closest_hit = hit_bvh;
+                    is_hit_sphere = true; // Set to true to proceed with lighting/skybox logic
+                    // Assign default material for meshes
+                    hit_sphere = Sphere(vec3<f32>(0.0), 0.0, vec4<f32>(0.8, 0.8, 0.8, 1.0), 2, 0.15);
+                }
+            }
     
             // If no intersection with spheres, calculate skybox color and break out of loop
             if closest_hit.distance == MAX_FLOAT {
@@ -390,16 +550,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 if lights[l].is_valid == 1 {
                     let light = lights[l];
                     let r_d = normalize(light.position - hit_point); // Direction to the light
-                    let ray_2 = Ray(light.position, r_d, 1.0 / r_d);
+                    let shadow_origin = hit_point + closest_hit.normal * 0.001;
+                    let ray_2 = Ray(shadow_origin, r_d, 1.0 / r_d);
+                    let dist_to_light = length(light.position - hit_point);
     
                     // Check if light is visible by tracing a shadow ray
                     var hit_found = false;
                     for (var k = 0u; k < arrayLength(&spheres); k++) {
                         let sphere = spheres[k];
                         let hit_result = hit_sphere_result(ray_2, sphere.center, sphere.radius);
-                        if hit_result.distance != MAX_FLOAT {
+                        if (hit_result.distance < dist_to_light) {
                             hit_found = true;
                             break;
+                        }
+                    }
+                    if (!hit_found && bvh_nodes_count.count > 0u) {
+                        let hit_bvh = traverse_bvh(ray_2);
+                        if (hit_bvh.distance < dist_to_light) {
+                            hit_found = true;
                         }
                     }
     
@@ -424,6 +592,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             } else if hit_sphere.material <= 1. { // Reflective material
                 let specular_ratio = smoothstep(0.0, 1.0, hit_sphere.material);
                 let reflected_dir = reflect(ray.direction, closest_hit.normal);
+                // let seed = vec2<f32>(in.vert_pos.xy) * f32(bounce + 1u) * 127.1;
                 let diffuse_dir = random_hemisphere_direction(closest_hit.normal, vec2<f32>(10.)); // Generate a random direction
                 ray.direction = mix(diffuse_dir, reflected_dir, specular_ratio);
             } else { // Refractive material
