@@ -1,6 +1,4 @@
-use std::{path::PathBuf, str::FromStr};
-
-use crate::utils::mesh::{load_mesh, Mesh};
+use crate::utils::mesh::load_mesh_from_bytes;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -22,11 +20,24 @@ impl<'a> State<'a> {
     ) -> Self {
         // Creating a default camera for perspective view if default not provided by the user
         let camera = camera.unwrap_or_default();
-        let window_size = window.inner_size();
+        let mut window_size = window.inner_size();
+        #[cfg(target_arch = "wasm32")]
+        {
+            if window_size.width == 0 || window_size.height == 0 {
+                use winit::platform::web::WindowExtWebSys;
+                if let Some(canvas) = window.canvas() {
+                    window_size.width = canvas.width().max(1);
+                    window_size.height = canvas.height().max(1);
+                }
+            }
+        }
 
         // creating instance to interact with the gpu
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            #[cfg(not(target_arch = "wasm32"))]
             backends: wgpu::Backends::VULKAN,
+            #[cfg(target_arch = "wasm32")]
+            backends: wgpu::Backends::PRIMARY,
             ..Default::default()
         });
         let surface = instance.create_surface(window).unwrap();
@@ -41,12 +52,22 @@ impl<'a> State<'a> {
             )
             .await
             .unwrap();
+
+        let info = adapter.get_info();
+        log::info!(
+            "Using GPU adapter: {:?} | backend: {:?} | device_type: {:?}",
+            info.name, info.backend, info.device_type
+        );
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     memory_hints: wgpu::MemoryHints::Performance,
                     required_features: wgpu::Features::empty(),
+                    #[cfg(not(target_arch = "wasm32"))]
                     required_limits: wgpu::Limits::default(),
+                    #[cfg(target_arch = "wasm32")]
+                    required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
                     label: None,
                 },
                 None,
@@ -93,8 +114,8 @@ impl<'a> State<'a> {
                 ..Default::default()
             }],
         );
-        let path = PathBuf::from_str("assets/monkey.stl").unwrap();
-        let mesh = load_mesh(&path).unwrap();
+        let mesh_bytes: &[u8] = include_bytes!("../../assets/monkey.stl");
+        let mesh = load_mesh_from_bytes(mesh_bytes).unwrap();
         let bvh_manager = crate::utils::bvh::BvhManager::new(&device, &queue, &mesh);
 
         let render_pipeline_layout =
@@ -116,14 +137,14 @@ impl<'a> State<'a> {
 
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
 
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState::REPLACE),

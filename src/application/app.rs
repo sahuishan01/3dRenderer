@@ -1,9 +1,13 @@
 use winit::{
-    dpi::PhysicalSize,
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     keyboard::{KeyCode, PhysicalKey},
+    window::Window,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use winit::{
+    dpi::PhysicalSize,
     platform::windows::IconExtWindows,
-    window::{Icon, Window},
+    window::Icon,
 };
 
 use crate::{
@@ -12,12 +16,45 @@ use crate::{
 };
 use rand::Rng;
 
-#[derive(Default)]
 pub struct App<'a> {
     pub window: Option<std::sync::Arc<Window>>,
     pub state: Option<State<'a>>,
     pub movements: [bool; 3],
     pub last_mouse_pos: winit::dpi::PhysicalPosition<f64>,
+    pub last_fps_update: std::time::Instant,
+    pub frame_count: u32,
+}
+
+impl Default for App<'_> {
+    fn default() -> Self {
+        Self {
+            window: None,
+            state: None,
+            movements: [false; 3],
+            last_mouse_pos: Default::default(),
+            last_fps_update: std::time::Instant::now(),
+            frame_count: 0,
+        }
+    }
+}
+
+impl<'a> App<'a> {
+    fn update_fps(&mut self) {
+        if let Some(state) = self.state.as_mut() {
+            let _ = state.render();
+            self.frame_count += 1;
+
+            let elapsed = self.last_fps_update.elapsed();
+            if elapsed.as_secs_f64() >= 1.0 {
+                let fps = self.frame_count as f64 / elapsed.as_secs_f64();
+                if let Some(w) = &self.window {
+                    w.set_title(&format!("3D Renderer | {:.1} FPS", fps));
+                }
+                self.last_fps_update = std::time::Instant::now();
+                self.frame_count = 0;
+            }
+        }
+    }
 }
 
 impl<'a> winit::application::ApplicationHandler for App<'a> {
@@ -30,6 +67,7 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                     .unwrap(),
             );
             window.set_title("3D Renderer");
+            #[cfg(not(target_arch = "wasm32"))]
             window.set_window_icon(Some(
                 Icon::from_path("assets/logo.ico", Some(PhysicalSize::new(64, 64))).unwrap(),
             ));
@@ -86,6 +124,12 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                 .add_spheres(spheres, &state.device, &state.queue);
         }
     }
+    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
     fn window_event(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
@@ -109,7 +153,7 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                     0,
                     bytemuck::cast_slice(&[state.cam_manager.camera.cam_info]),
                 );
-                let _ = state.render();
+                self.update_fps();
             }
             WindowEvent::RedrawRequested => {}
 
@@ -189,7 +233,7 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                         0,
                         bytemuck::cast_slice(&[state.cam_manager.camera.cam_info]),
                     );
-                    let _ = state.render();
+                    self.update_fps();
                 }
                 self.last_mouse_pos = position;
             }
@@ -199,16 +243,33 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                 ..
             } => {
                 let state = self.state.as_mut().unwrap();
+                let forward = (&state.cam_manager.camera.focus
+                    - &state.cam_manager.camera.position)
+                    .normalize();
+                let distance = (&state.cam_manager.camera.focus
+                    - &state.cam_manager.camera.position)
+                    .length();
+                let zoom_speed = (distance * 0.05) as f32;
                 if y > 0. {
-                    let forward = (&state.cam_manager.camera.focus
-                        - &state.cam_manager.camera.position)
-                        .normalize();
-                    state.cam_manager.camera.position += forward * 1.01;
+                    state.cam_manager.camera.position += forward * zoom_speed;
                 } else {
-                    let forward = (&state.cam_manager.camera.focus
-                        - &state.cam_manager.camera.position)
-                        .normalize();
-                    state.cam_manager.camera.position -= forward * 0.99;
+                    state.cam_manager.camera.position -= forward * zoom_speed;
+                }
+                // Clamp max distance to prevent precision issues
+                let offset = &state.cam_manager.camera.focus
+                    - &state.cam_manager.camera.position;
+                let max_distance = 300.0f32;
+                if offset.length() > max_distance as f64 {
+                    state.cam_manager.camera.position = &state.cam_manager.camera.focus
+                        - &offset.normalize() * max_distance;
+                }
+                // Ensure minimum distance so we don't pass through the focus
+                let min_distance = 0.5f32;
+                let new_offset = &state.cam_manager.camera.focus
+                    - &state.cam_manager.camera.position;
+                if new_offset.length() < min_distance as f64 {
+                    state.cam_manager.camera.position = &state.cam_manager.camera.focus
+                        - &new_offset.normalize() * min_distance;
                 }
                 state.cam_manager.camera.update_cam_info(&state.size);
                 state.queue.write_buffer(
@@ -216,7 +277,7 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                     0,
                     bytemuck::cast_slice(&[state.cam_manager.camera.cam_info]),
                 );
-                let _ = state.render();
+                self.update_fps();
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -302,7 +363,7 @@ impl<'a> winit::application::ApplicationHandler for App<'a> {
                         .camera
                         .cam_info]),
                 );
-                let _ = self.state.as_mut().unwrap().render();
+                self.update_fps();
             }
             _ => {}
         }

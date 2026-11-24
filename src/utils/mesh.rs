@@ -1,9 +1,11 @@
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::{max_num_threads, prelude::*};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 use std::hash::Hasher;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
 // pub fn hash<H: Hasher>(&self, state: &mut H) {
@@ -105,7 +107,9 @@ impl Mesh {
         }
     }
 
-    pub fn write_stl_file(&self, file_path: &str) -> io::Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn write_stl_file(&self, file_path: &str) -> std::io::Result<()> {
+        use std::io::Write;
         let mut file = File::create(file_path)?;
 
         writeln!(file, "solid ASCII_STL")?;
@@ -140,24 +144,52 @@ impl Mesh {
     }
 }
 
+pub fn load_mesh_from_bytes(data: &[u8]) -> Result<Mesh, String> {
+    if data.len() < 84 {
+        return Err("STL data too short".to_string());
+    }
+    let num_triangles = u32::from_le_bytes([data[80], data[81], data[82], data[83]]) as usize;
+    let expected_data_size = std::mem::size_of::<Triangle>() * num_triangles;
+    let payload = &data[84..];
+    if payload.len() != expected_data_size {
+        return Err(format!(
+            "Binary STL incorrect length: {} vs {}",
+            payload.len(),
+            expected_data_size
+        ));
+    }
+    let mut triangles: Vec<Triangle> = vec![Triangle::default(); num_triangles];
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            payload.as_ptr(),
+            triangles.as_mut_ptr() as *mut u8,
+            expected_data_size,
+        );
+    }
+    let mut mesh = Mesh::new(num_triangles);
+    for (i, triangle) in triangles.iter().enumerate() {
+        mesh.faces[i] = [3 * i, 3 * i + 1, 3 * i + 2];
+        mesh.vertices[3 * i] = [triangle.v1[0], triangle.v1[1], triangle.v1[2]];
+        mesh.vertices[3 * i + 1] = [triangle.v2[0], triangle.v2[1], triangle.v2[2]];
+        mesh.vertices[3 * i + 2] = [triangle.v3[0], triangle.v3[1], triangle.v3[2]];
+        mesh.normals[i] = [triangle.n[0], triangle.n[1], triangle.n[2]];
+    }
+    mesh.loaded = true;
+    Ok(mesh)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_mesh(path: &PathBuf) -> Result<Mesh, String> {
-    // println!("Processing path {:?}", std::path::Path::new(path).file_name().ok_or_else(|| "Invalid file name").unwrap());
-
+    use std::io::{Read, Seek, SeekFrom};
     let mut f = File::open(path).unwrap();
-
     f.seek(SeekFrom::Start(80)).unwrap();
-
     let mut num_triangles: u32 = 0;
     f.read_exact(unsafe { std::mem::transmute::<&mut u32, &mut [u8; 4]>(&mut num_triangles) })
         .unwrap();
-
     let data_start = f.stream_position().unwrap();
     let data_end = f.seek(SeekFrom::End(0)).unwrap();
     let len_data = data_end - data_start;
     let expected_data_size = (std::mem::size_of::<Triangle>() as u64) * (num_triangles as u64);
-
-    // println!("Triangle size is {:?}", std::mem::size_of::<Triangle>() as u64);
-
     if len_data != expected_data_size {
         eprintln!(
             "Error: Binary STL has incorrect length in data section: {} vs {}",
@@ -165,10 +197,8 @@ pub fn load_mesh(path: &PathBuf) -> Result<Mesh, String> {
         );
         return Err("Binary Data incorrect".to_string());
     }
-
     let mut mesh: Mesh = Mesh::new(num_triangles as usize);
     f.seek(SeekFrom::Start(data_start)).unwrap();
-
     let mut triangles: Vec<Triangle> = vec![Triangle::default(); num_triangles as usize];
     unsafe {
         f.read_exact(std::slice::from_raw_parts_mut(
@@ -177,14 +207,10 @@ pub fn load_mesh(path: &PathBuf) -> Result<Mesh, String> {
         ))
         .unwrap();
     }
-
     let chunk_size = (num_triangles as usize + max_num_threads() - 1) / max_num_threads();
-
     let faces_chunks = mesh.faces.par_chunks_mut(chunk_size);
     let vertices_chunks = mesh.vertices.par_chunks_mut(3 * chunk_size);
     let normals_chunks = mesh.normals.par_chunks_mut(chunk_size);
-
-    // Zip the chunks to process them together
     faces_chunks
         .zip(vertices_chunks)
         .zip(normals_chunks)
@@ -192,13 +218,9 @@ pub fn load_mesh(path: &PathBuf) -> Result<Mesh, String> {
         .for_each(
             |(chunk_idx, ((faces_chunk, vertices_chunk), normals_chunk))| {
                 let global_offset = chunk_idx * chunk_size;
-
-                // Calculate the actual end of the current chunk, ensuring it doesn't exceed num_triangles
                 let end_idx = (global_offset + chunk_size).min(num_triangles as usize);
-
                 for (local_idx, triangle) in triangles[global_offset..end_idx].iter().enumerate() {
                     let global_idx = global_offset + local_idx;
-
                     faces_chunk[local_idx] =
                         [3 * global_idx, 3 * global_idx + 1, 3 * global_idx + 2];
                     vertices_chunk[3 * local_idx] =
@@ -253,6 +275,7 @@ pub fn process_mesh(mesh: &Mesh) -> Result<Mesh, String> {
     Ok(temp_mesh)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn add_meshes(meshes: &mut Vec<(PathBuf, Mesh)>, paths: Vec<PathBuf>) {
     let start_time = std::time::Instant::now();
 
@@ -328,6 +351,7 @@ pub fn add_meshes(meshes: &mut Vec<(PathBuf, Mesh)>, paths: Vec<PathBuf>) {
     );
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn process_meshes(meshes: &mut Vec<(PathBuf, Mesh)>, start_idx: usize) {
     let start_time = std::time::Instant::now();
 
@@ -395,6 +419,7 @@ pub fn process_meshes(meshes: &mut Vec<(PathBuf, Mesh)>, start_idx: usize) {
     );
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn sort_meshes_by_num_faces(meshes: &mut [(PathBuf, Mesh)]) {
     let swap_start = std::time::Instant::now();
     meshes.sort_by(|a, b| b.1.num_faces.cmp(&a.1.num_faces));
@@ -448,7 +473,7 @@ pub fn sort_meshes_by_num_faces(meshes: &mut [(PathBuf, Mesh)]) {
     );
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::{str::FromStr, time::Instant};
 

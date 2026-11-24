@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Renderer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #loading {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: #111; color: #fff;
+      font-family: monospace; font-size: 1.2rem;
+      gap: 1rem; z-index: 10;
+    }
+    #loading .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid #444;
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #fps {
+      position: fixed; top: 8px; left: 8px;
+      padding: 4px 8px;
+      background: rgba(0, 0, 0, 0.55);
+      color: #0f0;
+      font-family: monospace;
+      font-size: 14px;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 20;
+    }
+  </style>
+</head>
+<body>
+  <div id="fps">FPS: --</div>
+  <div id="loading">
+    <div class="spinner"></div>
+    <span>Initialising 3D Renderer…</span>
+  </div>
+  <script>
+    (function() {
+      const el = document.getElementById('fps');
+      let frames = 0, last = performance.now();
+      function tick(now) {
+        frames++;
+        if (now - last >= 500) {
+          const fps = (frames * 1000) / (now - last);
+          el.textContent = 'FPS: ' + fps.toFixed(1);
+          frames = 0; last = now;
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
+  </script>
+  <script type="module">
+    import init from './pkg/renderer.js';
+    const hide = () => { document.getElementById('loading').style.display = 'none'; };
+    init().then(hide).catch(err => {
+      const msg = String(err && err.message || err);
+      // winit's web event loop unwinds the stack by throwing — this is normal.
+      if (msg.includes("Using exceptions for control flow")) {
+        hide();
+        return;
+      }
+      document.getElementById('loading').innerHTML =
+        '<span style="color:#f66">Failed to load: ' + msg + '</span>';
+      console.error(err);
+    });
+  </script>
+</body>
+</html>

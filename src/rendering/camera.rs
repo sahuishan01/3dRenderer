@@ -25,6 +25,21 @@ pub enum Direction {
     Down,
 }
 
+fn rotate_around_axis(v: &Vec3<f32>, axis: &Vec3<f32>, angle: f32) -> Vec3<f32> {
+    // Rodrigues' rotation formula: v*cos + (axis×v)*sin + axis*(axis·v)*(1-cos)
+    let cos = angle.cos();
+    let sin = angle.sin();
+    let dot = axis.dot(v);
+    let cross = axis.cross(v);
+    Vec3::<f32> {
+        v: [
+            v.v[0] * cos + cross.v[0] * sin + axis.v[0] * dot * (1.0 - cos),
+            v.v[1] * cos + cross.v[1] * sin + axis.v[1] * dot * (1.0 - cos),
+            v.v[2] * cos + cross.v[2] * sin + axis.v[2] * dot * (1.0 - cos),
+        ],
+    }
+}
+
 impl Default for Camera {
     fn default() -> Self {
         Camera {
@@ -67,30 +82,80 @@ impl Camera {
     }
 
     pub fn movement(&mut self, direction: Direction, rotate: &bool, amount: f32) {
-        let factor = (&self.focus - &self.position).length() as f32 / 1000. * amount;
+        if *rotate {
+            // Orbit camera: rotate position around the focus point.
+            let offset = &self.position - &self.focus;
+            let distance = offset.length() as f32;
+            // Scale sensitivity inversely with distance so a 1-pixel drag
+            // produces the same apparent motion regardless of zoom.
+            let sensitivity = (0.09 / distance).clamp(0.0001, 0.01);
+            let angle = amount * sensitivity;
 
-        let movement_direction = match direction {
-            Direction::Backward => (&self.focus - &self.position).normalize() * -factor,
-            Direction::Forward => (&self.focus - &self.position).normalize() * factor,
-            Direction::Down => self.up.clone().normalize() * -factor,
-            Direction::Up => self.up.clone().normalize() * factor,
-            Direction::Left => (&self.focus - &self.position).cross(&self.up).normalize() * -factor,
-            Direction::Right => (&self.focus - &self.position).cross(&self.up).normalize() * factor,
-        };
-        let new_position = &self.position + &movement_direction;
-        if !rotate {
-            self.focus += movement_direction;
-        } else {
-            match direction {
-                Direction::Up | Direction::Down => {
-                    self.up = (&self.focus - &new_position)
-                        .cross(&(self.up).cross(&(&self.focus - &self.position)).normalize())
-                        .normalize();
-                }
-                _ => {}
+            // Derive orbit axes from a fixed world-up so the yaw axis never drifts.
+            let world_up = Vec3::new(0.0f32, 1.0f32, 0.0f32);
+            let forward = (&self.focus - &self.position).normalize();
+            let dot = world_up.dot(&forward) as f32;
+            let proj = &forward * dot;
+            let mut yaw_axis = &world_up - &proj;
+            if yaw_axis.length() < 0.001 {
+                // Gimbal lock: fallback to Z-up reference
+                let fallback = Vec3::new(0.0f32, 0.0f32, 1.0f32);
+                let dot2 = fallback.dot(&forward) as f32;
+                let proj2 = &forward * dot2;
+                yaw_axis = &fallback - &proj2;
             }
+            yaw_axis = yaw_axis.normalize();
+            let right = yaw_axis.cross(&forward).normalize();
+
+            let new_offset = match direction {
+                Direction::Left | Direction::Right => {
+                    let sign = if matches!(direction, Direction::Left) { 1.0 } else { -1.0 };
+                    rotate_around_axis(&offset, &yaw_axis, sign * angle)
+                }
+                Direction::Up | Direction::Down => {
+                    let sign = if matches!(direction, Direction::Up) { -1.0 } else { 1.0 };
+                    let new_off = rotate_around_axis(&offset, &right, sign * angle);
+                    // Clamp pitch to avoid looking straight up/down (gimbal lock)
+                    let new_forward = (&self.focus - &(&self.focus + &new_off)).normalize();
+                    if new_forward.dot(&world_up).abs() < 0.99 {
+                        new_off
+                    } else {
+                        offset
+                    }
+                }
+                _ => offset,
+            };
+            self.position = &self.focus + &new_offset;
+            // Lock up to the derived yaw axis so it can never drift
+            self.up = yaw_axis;
+        } else {
+            // Pan camera: translate both position and focus
+            let factor = (&self.focus - &self.position).length() as f32 / 1000. * amount;
+            let world_up = Vec3::new(0.0f32, 1.0f32, 0.0f32);
+            let forward = (&self.focus - &self.position).normalize();
+            let dot = world_up.dot(&forward) as f32;
+            let proj = &forward * dot;
+            let mut pan_up = &world_up - &proj;
+            if pan_up.length() < 0.001 {
+                let fallback = Vec3::new(0.0f32, 0.0f32, 1.0f32);
+                let dot2 = fallback.dot(&forward) as f32;
+                let proj2 = &forward * dot2;
+                pan_up = &fallback - &proj2;
+            }
+            pan_up = pan_up.normalize();
+            let pan_right = pan_up.cross(&forward).normalize();
+
+            let movement_direction = match direction {
+                Direction::Backward => forward * -factor,
+                Direction::Forward => forward * factor,
+                Direction::Down => pan_up * -factor,
+                Direction::Up => pan_up * factor,
+                Direction::Left => pan_right * -factor,
+                Direction::Right => pan_right * factor,
+            };
+            self.position = &self.position + &movement_direction;
+            self.focus = &self.focus + &movement_direction;
         }
-        self.position = new_position;
     }
 
     pub fn update_cam_info(&mut self, size: &winit::dpi::PhysicalSize<u32>) {

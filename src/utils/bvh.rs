@@ -1,9 +1,13 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Mutex;
 
 use crate::utils::mesh::Mesh;
 use crate::utils::MinHeap;
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::max_num_threads;
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use super::EntityCount;
@@ -55,83 +59,78 @@ pub struct BVH {
 pub fn create_bvh(mesh: &Mesh, depth: u8) -> BVH {
     let mut triangles: std::vec::Vec<Triangle2> = vec![Triangle2::default(); mesh.faces.len()];
     let mut triangle_centers: Vec<[f32; 3]> = vec![[0., 0., 0.]; mesh.faces.len()];
-    let chunk_size = mesh.faces.len().div_ceil(max_num_threads());
-    let bounds = Arc::new(Mutex::new([
-        f32::MAX,
-        f32::MAX,
-        f32::MAX,
-        f32::MIN,
-        f32::MIN,
-        f32::MIN,
-    ]));
-    triangle_centers
-        .par_chunks_mut(chunk_size)
-        .zip(triangles.par_chunks_mut(chunk_size))
-        .enumerate()
-        .for_each(|(chunk_idx, (chunk1, chunk2))| {
-            let mut local_min = [f32::MAX, f32::MAX, f32::MAX];
-            let mut local_max = [f32::MIN, f32::MIN, f32::MIN];
-            for i in 0..chunk1.len() {
-                let global_index = chunk_idx * chunk_size + i;
-                if global_index < mesh.faces.len() {
-                    let face = mesh.faces[global_index];
-                    let v1 = face[0];
-                    let v2 = face[1];
-                    let v3 = face[2];
-                    chunk1[i][0] =
-                        (mesh.vertices[v1][0] + mesh.vertices[v2][0] + mesh.vertices[v3][0]) / 3.0;
-                    chunk1[i][1] =
-                        (mesh.vertices[v1][1] + mesh.vertices[v2][1] + mesh.vertices[v3][1]) / 3.0;
-                    chunk1[i][2] =
-                        (mesh.vertices[v1][2] + mesh.vertices[v2][2] + mesh.vertices[v3][2]) / 3.0;
-                    chunk2[i].v1 = [
-                        mesh.vertices[v1][0],
-                        mesh.vertices[v1][1],
-                        mesh.vertices[v1][2],
-                    ];
-                    chunk2[i].v2 = [
-                        mesh.vertices[v2][0],
-                        mesh.vertices[v2][1],
-                        mesh.vertices[v2][2],
-                    ];
-                    chunk2[i].v3 = [
-                        mesh.vertices[v3][0],
-                        mesh.vertices[v3][1],
-                        mesh.vertices[v3][2],
-                    ];
-                    chunk2[i].normal = [
-                        mesh.normals[global_index][0],
-                        mesh.normals[global_index][1],
-                        mesh.normals[global_index][2],
-                    ];
-                    let x_max = chunk2[i].v1[0].max(chunk2[i].v2[0].max(chunk2[i].v3[0]));
-                    let y_max = chunk2[i].v1[1].max(chunk2[i].v2[1].max(chunk2[i].v3[1]));
-                    let z_max = chunk2[i].v1[2].max(chunk2[i].v2[2].max(chunk2[i].v3[2]));
-                    let x_min = chunk2[i].v1[0].min(chunk2[i].v2[0].min(chunk2[i].v3[0]));
-                    let y_min = chunk2[i].v1[1].min(chunk2[i].v2[1].min(chunk2[i].v3[1]));
-                    let z_min = chunk2[i].v1[2].min(chunk2[i].v2[2].min(chunk2[i].v3[2]));
 
-                    local_min[0] = local_min[0].min(x_min);
-                    local_min[1] = local_min[1].min(y_min);
-                    local_min[2] = local_min[2].min(z_min);
-                    local_max[0] = local_max[0].max(x_max);
-                    local_max[1] = local_max[1].max(y_max);
-                    local_max[2] = local_max[2].max(z_max);
-                } else {
-                    break;
+    #[cfg(not(target_arch = "wasm32"))]
+    let final_bounds = {
+        let chunk_size = mesh.faces.len().div_ceil(max_num_threads());
+        let bounds = Arc::new(Mutex::new([
+            f32::MAX, f32::MAX, f32::MAX,
+            f32::MIN, f32::MIN, f32::MIN,
+        ]));
+        triangle_centers
+            .par_chunks_mut(chunk_size)
+            .zip(triangles.par_chunks_mut(chunk_size))
+            .enumerate()
+            .for_each(|(chunk_idx, (chunk1, chunk2))| {
+                let mut local_min = [f32::MAX, f32::MAX, f32::MAX];
+                let mut local_max = [f32::MIN, f32::MIN, f32::MIN];
+                for i in 0..chunk1.len() {
+                    let global_index = chunk_idx * chunk_size + i;
+                    if global_index < mesh.faces.len() {
+                        let face = mesh.faces[global_index];
+                        let v1 = face[0]; let v2 = face[1]; let v3 = face[2];
+                        chunk1[i][0] = (mesh.vertices[v1][0] + mesh.vertices[v2][0] + mesh.vertices[v3][0]) / 3.0;
+                        chunk1[i][1] = (mesh.vertices[v1][1] + mesh.vertices[v2][1] + mesh.vertices[v3][1]) / 3.0;
+                        chunk1[i][2] = (mesh.vertices[v1][2] + mesh.vertices[v2][2] + mesh.vertices[v3][2]) / 3.0;
+                        chunk2[i].v1 = [mesh.vertices[v1][0], mesh.vertices[v1][1], mesh.vertices[v1][2]];
+                        chunk2[i].v2 = [mesh.vertices[v2][0], mesh.vertices[v2][1], mesh.vertices[v2][2]];
+                        chunk2[i].v3 = [mesh.vertices[v3][0], mesh.vertices[v3][1], mesh.vertices[v3][2]];
+                        chunk2[i].normal = [mesh.normals[global_index][0], mesh.normals[global_index][1], mesh.normals[global_index][2]];
+                        local_min[0] = local_min[0].min(chunk2[i].v1[0].min(chunk2[i].v2[0].min(chunk2[i].v3[0])));
+                        local_min[1] = local_min[1].min(chunk2[i].v1[1].min(chunk2[i].v2[1].min(chunk2[i].v3[1])));
+                        local_min[2] = local_min[2].min(chunk2[i].v1[2].min(chunk2[i].v2[2].min(chunk2[i].v3[2])));
+                        local_max[0] = local_max[0].max(chunk2[i].v1[0].max(chunk2[i].v2[0].max(chunk2[i].v3[0])));
+                        local_max[1] = local_max[1].max(chunk2[i].v1[1].max(chunk2[i].v2[1].max(chunk2[i].v3[1])));
+                        local_max[2] = local_max[2].max(chunk2[i].v1[2].max(chunk2[i].v2[2].max(chunk2[i].v3[2])));
+                    } else { break; }
                 }
-            }
-            let mut bound = bounds.lock().unwrap();
-            bound[0] = bound[0].min(local_min[0]);
-            bound[1] = bound[1].min(local_min[1]);
-            bound[2] = bound[2].min(local_min[2]);
-            bound[3] = bound[3].max(local_max[0]);
-            bound[4] = bound[4].max(local_max[1]);
-            bound[5] = bound[5].max(local_max[2]);
-        });
-    let final_bounds = bounds.lock().unwrap();
+                let mut bound = bounds.lock().unwrap();
+                bound[0] = bound[0].min(local_min[0]);
+                bound[1] = bound[1].min(local_min[1]);
+                bound[2] = bound[2].min(local_min[2]);
+                bound[3] = bound[3].max(local_max[0]);
+                bound[4] = bound[4].max(local_max[1]);
+                bound[5] = bound[5].max(local_max[2]);
+            });
+        let result = *bounds.lock().unwrap();
+        result
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let final_bounds = {
+        let mut bounds = [f32::MAX, f32::MAX, f32::MAX, f32::MIN, f32::MIN, f32::MIN];
+        for i in 0..mesh.faces.len() {
+            let face = mesh.faces[i];
+            let v1 = face[0]; let v2 = face[1]; let v3 = face[2];
+            triangle_centers[i][0] = (mesh.vertices[v1][0] + mesh.vertices[v2][0] + mesh.vertices[v3][0]) / 3.0;
+            triangle_centers[i][1] = (mesh.vertices[v1][1] + mesh.vertices[v2][1] + mesh.vertices[v3][1]) / 3.0;
+            triangle_centers[i][2] = (mesh.vertices[v1][2] + mesh.vertices[v2][2] + mesh.vertices[v3][2]) / 3.0;
+            triangles[i].v1 = [mesh.vertices[v1][0], mesh.vertices[v1][1], mesh.vertices[v1][2]];
+            triangles[i].v2 = [mesh.vertices[v2][0], mesh.vertices[v2][1], mesh.vertices[v2][2]];
+            triangles[i].v3 = [mesh.vertices[v3][0], mesh.vertices[v3][1], mesh.vertices[v3][2]];
+            triangles[i].normal = [mesh.normals[i][0], mesh.normals[i][1], mesh.normals[i][2]];
+            bounds[0] = bounds[0].min(triangles[i].v1[0].min(triangles[i].v2[0].min(triangles[i].v3[0])));
+            bounds[1] = bounds[1].min(triangles[i].v1[1].min(triangles[i].v2[1].min(triangles[i].v3[1])));
+            bounds[2] = bounds[2].min(triangles[i].v1[2].min(triangles[i].v2[2].min(triangles[i].v3[2])));
+            bounds[3] = bounds[3].max(triangles[i].v1[0].max(triangles[i].v2[0].max(triangles[i].v3[0])));
+            bounds[4] = bounds[4].max(triangles[i].v1[1].max(triangles[i].v2[1].max(triangles[i].v3[1])));
+            bounds[5] = bounds[5].max(triangles[i].v1[2].max(triangles[i].v2[2].max(triangles[i].v3[2])));
+        }
+        bounds
+    };
+
     let root_node = Node {
-        bounds: *final_bounds,
+        bounds: final_bounds,
         start_triangle: 0,
         triangle_count: triangle_centers.len() as u32,
         left_node: 0,
@@ -302,7 +301,7 @@ impl BvhManager {
         wgpu::BindGroupLayout,
         BVH,
     ) {
-        let bvh = create_bvh(mesh, 25);
+        let bvh = create_bvh(mesh, 14);
         let nodes_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Nodes buffer"),
             size: (std::mem::size_of::<Node>() * bvh.nodes.len()) as wgpu::BufferAddress,
@@ -555,7 +554,7 @@ impl BvhManager {
 //    on_x_edge || on_y_edge || on_z_edge
 //}
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use std::{path::PathBuf, str::FromStr, time::Instant};
 

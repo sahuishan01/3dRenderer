@@ -1,7 +1,7 @@
 // types
 // Define constants for pi, max float value, and max u32 value
 const PI: f32 = 3.141592653589793; // Define pi constant
-const MAX_FLOAT: f32 = 3.4028235e38; // Define max float value
+const MAX_FLOAT: f32 = 3.4028234e+38; // Define max float value
 const MAX_U32: u32 = 0xffffffff; // Define max u32 value
 
 // Define a struct to represent a sphere
@@ -217,28 +217,31 @@ fn domain_warped_fbm(p: vec3<f32>) -> f32 {
 }
 
 fn sample_skybox(direction: vec3<f32>) -> vec4<f32> {
-    // Generate cloud pattern using 3D direction directly to avoid seams
-    let cloud_scale = 2.0;
-    let cloud_density = domain_warped_fbm(direction * cloud_scale);
-    
-    // Base sky gradient
+    // Cheap sky: gradient + simple noise clouds
     let t = 0.5 * (direction.y + 1.0);
     let sky_color = mix(
-        vec4<f32>(0.0, 0.0, 0.0, 1.0),  // Horizon color
-        vec4<f32>(0.5, 0.7, 1.0, 1.0),  // Sky color at the top
+        vec4<f32>(0.05, 0.05, 0.1, 1.0),
+        vec4<f32>(0.4, 0.6, 1.0, 1.0),
         t
     );
-    
-    // Cloud color and transparency
-    let cloud_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
-    let cloud_coverage = 0.4; // Adjust this value to control cloud coverage (0.0 - 1.0)
-    let cloud_softness = 0.1; // Adjust this value to control cloud edge softness
-    
-    // Only show clouds above horizon (direction.y > 0)
-    let cloud_mask = smoothstep(0.0, cloud_softness, cloud_density - (1.0 - cloud_coverage)) * smoothstep(-0.1, 0.1, direction.y);
-    
-    // Mix sky color with clouds
-    return mix(sky_color, cloud_color, cloud_mask * 0.7); // 0.7 to make clouds slightly transparent
+
+    // Simple 2-octave cloud noise — much cheaper than domain-warped FBM + Worley
+    let cloud_p = direction * 3.0;
+    let n1 = noise3d(cloud_p);
+    let n2 = noise3d(cloud_p * 2.0);
+    let cloud_density = 0.6 * n1 + 0.3 * n2;
+
+    let cloud_mask = smoothstep(0.35, 0.55, cloud_density) * smoothstep(-0.05, 0.1, direction.y);
+    return mix(sky_color, vec4<f32>(1.0, 1.0, 1.0, 1.0), cloud_mask * 0.6);
+}
+
+fn sample_skybox_fast(direction: vec3<f32>) -> vec4<f32> {
+    let t = 0.5 * (direction.y + 1.0);
+    return mix(
+        vec4<f32>(0.05, 0.05, 0.1, 1.0),
+        vec4<f32>(0.4, 0.6, 1.0, 1.0),
+        t
+    );
 }
 
 // BVH
@@ -307,7 +310,7 @@ struct Count {
 @group(3) @binding(2) var<uniform> bvh_nodes_count: Count;
 @group(3) @binding(3) var<uniform> bvh_triangles_count: Count;
 
-const offset_count = 8u;
+const offset_count = 1u;
 
 fn intersect_aabb(ray: Ray, bounds: array<f32, 6>) -> f32 {
     let inv_dir = ray.inv;
@@ -428,6 +431,63 @@ fn traverse_bvh(ray: Ray) -> HitResult {
     return closest_hit;
 }
 
+fn any_hit_bvh(ray: Ray, max_dist: f32) -> bool {
+    var stack: array<u32, 32>;
+    var stack_ptr: i32 = 0;
+    stack[stack_ptr] = 0u;
+
+    while (stack_ptr >= 0) {
+        let node_idx = stack[stack_ptr];
+        stack_ptr = stack_ptr - 1;
+
+        let node = bvh_nodes[node_idx];
+
+        let t_aabb = intersect_aabb(ray, node.bounds);
+        if (t_aabb >= max_dist) {
+            continue;
+        }
+
+        if (node.triangle_count > 0u) {
+            for (var i = 0u; i < node.triangle_count; i = i + 1u) {
+                let tri_idx = node.start_triangle + i;
+                let tri = bvh_triangles[tri_idx];
+                let hit = intersect_triangle(ray, tri);
+                if (hit.distance < max_dist) {
+                    return true;
+                }
+            }
+        } else {
+            let left_idx = node.left_node;
+            let right_idx = node.right_node;
+
+            let t_left = intersect_aabb(ray, bvh_nodes[left_idx].bounds);
+            let t_right = intersect_aabb(ray, bvh_nodes[right_idx].bounds);
+
+            if (t_left < max_dist && t_right < max_dist) {
+                if (t_left < t_right) {
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = right_idx;
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = left_idx;
+                } else {
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = left_idx;
+                    stack_ptr = stack_ptr + 1;
+                    stack[stack_ptr] = right_idx;
+                }
+            } else if (t_left < max_dist) {
+                stack_ptr = stack_ptr + 1;
+                stack[stack_ptr] = left_idx;
+            } else if (t_right < max_dist) {
+                stack_ptr = stack_ptr + 1;
+                stack[stack_ptr] = right_idx;
+            }
+        }
+    }
+
+    return false;
+}
+
 // Define the vertex shader
 @vertex
 fn vs_main(
@@ -462,40 +522,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let y = vec3<f32>(cam_info[3].y, cam_info[3].z, cam_info[3].w);
 
     // Map i and j into screen space coordinates
-    // Initialize the final color as black and set initial attenuation for lighting calculations
+    // Single-sample ray at pixel center (no AA) — much faster for real-time
+    let u = (i - 1.0) * cam_info[2].x;
+    let v = (j - 1.0) * cam_info[2].y;
+
+    // Calculate the center of the pixel in world space
+    let pixel_center = view_port_center + x * u + y * v;
+
+    // Define ray direction and inverse direction based on camera position and pixel center
+    let ray_direction = normalize(pixel_center - cam_pos);
+    let ray_inv = 1.0 / ray_direction;
+
+    // Initialize the ray with origin (camera position), direction, and inverse direction
+    var ray: Ray = Ray(cam_pos, ray_direction, ray_inv);
+
     var final_color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-    let half_count = offset_count / 2;
-    var offsets: array<vec2<f32>, offset_count>;
-    for (var idx = 0u; idx < half_count; idx++) {
-        for (var idx2 = 0u; idx2 < half_count; idx2++) {
-            let seed = vec2<f32>(in.vert_pos.x,in.vert_pos.y) * f32(idx + 1u) * 127.1;
-            offsets[idx * half_count + idx2] = vec2<f32>(rand(seed), rand(seed + vec2<f32>(1.0, 0.0)));
-        }
-    }
+    var attenuation = vec3<f32>(1.0, 1.0, 1.0);
 
-    for (var idx = 0u; idx < offset_count; idx++) {
-        var ray_color = vec4(0., 0., 0., 1.);
-        let u = (i - 1. + offsets[idx].x * cam_info[1].z) * cam_info[2].x;
-        let v = (j - 1. + offsets[idx].y * cam_info[1].w) * cam_info[2].y;
-    
-        // Calculate the center of the pixel in world space
-        let pixel_center = view_port_center + x * u + y * v;
-    
-        // Define ray direction and inverse direction based on camera position and pixel center
-        let ray_direction = normalize(pixel_center - cam_pos);
-        let ray_inv = 1.0 / ray_direction;
-    
-        // Initialize the ray with origin (camera position), direction, and inverse direction
-        var ray: Ray = Ray(cam_pos, ray_direction, ray_inv);
+    // Boolean to check if a sphere is hit during ray tracing
+    var is_hit_sphere = false;
 
+    var ray_color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
 
-        var attenuation = vec3<f32>(1.0, 1.0, 1.0);
-    
-        // Boolean to check if a sphere is hit during ray tracing
-        var is_hit_sphere = false;
-    
-        // Loop over possible bounces (up to 5) for reflection/refraction effects
-        for (var bounce = 0u; bounce < 5u; bounce++) {
+    // Loop over possible bounces (up to 3) for reflection/refraction effects
+    for (var bounce = 0u; bounce < 3u; bounce++) {
             // Initialize closest hit result with maximum distance and no hit point
             var closest_hit = HitResult(MAX_FLOAT, vec3<f32>(0.0));
             var hit_sphere: Sphere; // Placeholder for the hit sphere
@@ -533,7 +583,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // If no intersection with spheres, calculate skybox color and break out of loop
             if closest_hit.distance == MAX_FLOAT {
                 if is_hit_sphere {
-                    let sky_contribution = (sample_skybox(ray.direction)) / (10.0 * f32(bounce + 1u));
+                    let sky_contribution = (sample_skybox_fast(ray.direction)) / (10.0 * f32(bounce + 1u));
                     ray_color += sky_contribution;
                 } else {
                     let sky_contribution = sample_skybox(ray.direction);
@@ -565,8 +615,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                         }
                     }
                     if (!hit_found && bvh_nodes_count.count > 0u) {
-                        let hit_bvh = traverse_bvh(ray_2);
-                        if (hit_bvh.distance < dist_to_light) {
+                        if (any_hit_bvh(ray_2, dist_to_light)) {
                             hit_found = true;
                         }
                     }
@@ -587,13 +636,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     
             // Handle different material types
             if hit_sphere.material < 1.e-1 { // Diffuse material
-                ray_color += vec4<f32>(0.1, 0.1, 0.1, 1.0) * hit_sphere.color;
+                // Sky-based ambient: sample the skybox in the normal direction so
+                // surfaces are lit by the sky color rather than a flat grey term.
+                let sky_ambient = sample_skybox_fast(closest_hit.normal);
+                ray_color += sky_ambient * hit_sphere.color;
                 break;
             } else if hit_sphere.material <= 1. { // Reflective material
                 let specular_ratio = smoothstep(0.0, 1.0, hit_sphere.material);
                 let reflected_dir = reflect(ray.direction, closest_hit.normal);
-                // let seed = vec2<f32>(in.vert_pos.xy) * f32(bounce + 1u) * 127.1;
-                let diffuse_dir = random_hemisphere_direction(closest_hit.normal, vec2<f32>(10.)); // Generate a random direction
+                let seed = in.vert_pos.xy * 12.9898 + vec2<f32>(f32(bounce) * 1.341, f32(bounce) * 2.718);
+                let diffuse_dir = random_hemisphere_direction(closest_hit.normal, seed); // Generate a random direction
                 ray.direction = mix(diffuse_dir, reflected_dir, specular_ratio);
             } else { // Refractive material
                 let cos_theta = min(dot(-ray.direction, closest_hit.normal), 1.0);
@@ -612,10 +664,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             attenuation *= hit_sphere.material;
         }
 
-        final_color += ray_color;
-    }
-
-    final_color /= f32(offset_count);
+    final_color = ray_color;
 
     // Return the calculated color after all bounces and lighting computations
     return final_color;
